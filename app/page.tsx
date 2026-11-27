@@ -44,6 +44,21 @@ const fallbackImages = [
 ];
 const flowTabs = ["分镜制作", "故事板", "拍摄计划", "拍摄通告"];
 
+function MediaStoryLogo({ className = "", dotColor = "#FFBE18" }: { className?: string; dotColor?: string }) {
+  return (
+    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} aria-label="MediaStory Logo">
+      <path
+        d="M 24 66 C 24 41, 33 29, 41 29 C 47 29, 49 37, 50 42 C 51 37, 53 29, 59 29 C 67 29, 76 41, 76 66"
+        stroke="currentColor"
+        strokeWidth="9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="50" cy="64" r="5" fill={dotColor} />
+    </svg>
+  );
+}
+
 export const standard7Columns: ColumnSetting[] = [
   { key: "image", label: "画面", width: 180, visible: true },
   { key: "shotSize", label: "景别", width: 80, visible: true },
@@ -1026,12 +1041,12 @@ export default function Home() {
     }
   }
 
-  if (loading) return <main className="loading-page"><div className="flash-logo"><CirclesFour weight="fill" /></div><p>正在打开 MediaStory…</p></main>;
+  if (loading) return <main className="loading-page"><div className="flash-logo"><MediaStoryLogo /></div><p>正在打开 MediaStory…</p></main>;
 
   if (!accessKey) return (
     <main className="login-page">
       <section className="login-card">
-        <div className="flash-logo"><CirclesFour weight="fill" /></div>
+        <div className="flash-logo"><MediaStoryLogo /></div>
         <p className="brand-kicker">MEDIASTORY</p><h1>让创意落到每一个镜头</h1>
         <p className="muted">短视频与广告团队的前期制作工作台</p>
         <form onSubmit={(e) => { e.preventDefault(); void loadWorkspace(keyInput); }}>
@@ -1046,12 +1061,12 @@ export default function Home() {
   if (screen === "projects") return (
     <main className="projects-shell">
       <aside className="project-rail">
-        <div className="bolt-brand"><div className="flash-logo"><CirclesFour weight="fill" /></div></div>
+        <div className="bolt-brand"><div className="flash-logo"><MediaStoryLogo dotColor="#18181B" /></div></div>
         <nav>
           <button className="active"><FolderOpen weight="fill" /><span>项目</span></button>
           <button><UsersThree /><span>联系人</span></button>
         </nav>
-        <button className="account-button"><div className="flash-logo small"><CirclesFour weight="fill" /></div><span>我的账号</span></button>
+        <button className="account-button"><div className="flash-logo small"><MediaStoryLogo /></div><span>我的账号</span></button>
       </aside>
       <section className="projects-main">
         <header className="projects-top">
@@ -1259,7 +1274,7 @@ export default function Home() {
         <input className="project-name" value={project.name} onChange={(e) => updateProject({ name: e.target.value })} />
         <nav className="flow-nav">{flowTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav>
         <div className="project-tools">
-          <div className="flash-logo tiny"><CirclesFour weight="fill" /></div>
+          <div className="flash-logo tiny"><MediaStoryLogo /></div>
           <button className="round-button"><Bell /></button>
           <div className="menu-anchor">
             <button
