@@ -1,12 +1,12 @@
 "use client";
 
 import {
-  ArrowLeft, Bell, CaretDown, CaretUp, Check, CirclesFour, Clock, Copy,
+  ArrowLeft, ArrowCounterClockwise, ArrowClockwise, ArrowUUpLeft, ArrowUUpRight,
+  Bell, CaretDown, CaretUp, Check, CirclesFour, Clock, Copy,
   DotsSixVertical, DotsThree, DownloadSimple, Eye, EyeSlash, Export, FileArrowDown,
-  FilmSlate, Folder, FolderOpen, GearSix,
-  ImageSquare, List, MagnifyingGlass, PencilSimple, Play,
-  Plus, Rows, ShareNetwork, SlidersHorizontal, SquaresFour, TextT, Trash,
-  UploadSimple, UserPlus, UsersThree, X,
+  FilmSlate, Folder, FolderOpen, GearSix, ImageSquare, List, MagnifyingGlass,
+  Nut, PencilSimple, Play, Plus, Rows, ShareNetwork, SlidersHorizontal,
+  SquaresFour, TextT, Trash, UploadSimple, UserPlus, UsersThree, X,
 } from "@phosphor-icons/react";
 import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
@@ -132,6 +132,16 @@ export default function Home() {
   const [isImporting, setIsImporting] = useState(false);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const projectExcelInputRef = useRef<HTMLInputElement>(null);
+  const [activeColMenu, setActiveColMenu] = useState<string | null>(null);
+  const [editingCol, setEditingCol] = useState<ColumnSetting | null>(null);
+  const [showAddColPopover, setShowAddColPopover] = useState(false);
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [templateNameInput, setTemplateNameInput] = useState("");
+  const [showTemplatesLibraryModal, setShowTemplatesLibraryModal] = useState(false);
+  const [topMoreMenu, setTopMoreMenu] = useState(false);
+  const [storyboardSettingsMenu, setStoryboardSettingsMenu] = useState(false);
+  const [history, setHistory] = useState<Array<{ shots: Shot[]; columnSettings: ColumnSetting[] }>>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   const project = workspace.projects.find((p) => p.id === workspace.activeProjectId) ?? workspace.projects[0];
   const projects = workspace.projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.client.toLowerCase().includes(search.toLowerCase()));
@@ -189,18 +199,43 @@ export default function Home() {
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setNewMenu(false); setNewProjectMenu(false); setSettingsMenu(null); setSelectionMenu(false); setSelectedImageId(null); setImportModalData(null);
+        setActiveColMenu(null); setShowAddColPopover(false); setTopMoreMenu(false); setStoryboardSettingsMenu(false); setEditingCol(null);
       }
       if (event.altKey && event.key.toLowerCase() === "n" && screen === "project" && tab === "分镜制作") {
         event.preventDefault(); addShot();
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        const target = event.target as HTMLElement | null;
+        const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
+        if (!isInput) {
+          event.preventDefault();
+          if (event.shiftKey) redo(); else undo();
+        }
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+        const target = event.target as HTMLElement | null;
+        const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
+        if (!isInput) {
+          event.preventDefault();
+          redo();
+        }
+      }
+    };
+    const handleDocumentClick = () => {
+      setActiveColMenu(null);
+      setShowAddColPopover(false);
+      setTopMoreMenu(false);
+      setStoryboardSettingsMenu(false);
+      setNewProjectMenu(false);
     };
     window.addEventListener("paste", handlePaste);
     window.addEventListener("keydown", handleKey);
+    window.addEventListener("click", handleDocumentClick);
     return () => {
       window.removeEventListener("paste", handlePaste);
       window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("click", handleDocumentClick);
     };
-  }, [hoveredImageId, selectedImageId, screen, tab, project?.id, workspace]);
+  }, [hoveredImageId, selectedImageId, screen, tab, project?.id, workspace, historyIndex, history.length]);
 
   async function loadWorkspace(key: string) {
     setLoading(true);
@@ -230,8 +265,56 @@ export default function Home() {
     } catch { setSaveState("保存失败"); }
   }
 
-  function updateProject(patch: Partial<Project>) {
+  function pushHistory(shots: Shot[], cols: ColumnSetting[]) {
+    setHistory((prev) => {
+      const upToCurrent = prev.slice(0, historyIndex + 1);
+      return [...upToCurrent, { shots, columnSettings: cols }].slice(-30);
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, 29));
+  }
+
+  function undo() {
+    if (historyIndex <= 0 || !project) return;
+    const targetIndex = historyIndex - 1;
+    const target = history[targetIndex];
+    if (!target) return;
+    setHistoryIndex(targetIndex);
+    setColumnSettings(target.columnSettings);
+    void persist({
+      ...workspace,
+      projects: workspace.projects.map((p) => p.id === project.id ? { ...p, shots: target.shots, columnSettings: target.columnSettings } : p),
+    });
+    setToast("已撤回操作");
+  }
+
+  function redo() {
+    if (historyIndex >= history.length - 1 || !project) return;
+    const targetIndex = historyIndex + 1;
+    const target = history[targetIndex];
+    if (!target) return;
+    setHistoryIndex(targetIndex);
+    setColumnSettings(target.columnSettings);
+    void persist({
+      ...workspace,
+      projects: workspace.projects.map((p) => p.id === project.id ? { ...p, shots: target.shots, columnSettings: target.columnSettings } : p),
+    });
+    setToast("已重做操作");
+  }
+
+  function hideColumn(key: string) {
+    const next = columnSettings.map((c) => c.key === key ? { ...c, visible: false } : c);
+    commitColumns(next);
+    const col = columnSettings.find((c) => c.key === key);
+    setToast(`已隐藏“${col?.label || "此"}”列（可在列设置中恢复）`);
+  }
+
+  function updateProject(patch: Partial<Project>, recordHistory = true) {
     if (!project) return;
+    if (recordHistory) {
+      const nextShots = patch.shots !== undefined ? patch.shots : project.shots;
+      const nextCols = patch.columnSettings !== undefined ? patch.columnSettings : columnSettings;
+      pushHistory(nextShots, nextCols);
+    }
     void persist({ ...workspace, projects: workspace.projects.map((p) => p.id === project.id ? { ...p, ...patch } : p) });
   }
 
@@ -272,15 +355,21 @@ export default function Home() {
   }
 
   function saveColumnTemplate() {
-    const name = prompt("请输入模板名称", `${project?.name || "分镜"}列模板`);
-    if (!name?.trim()) return;
+    setTemplateNameInput(`${project?.name || "自定义"}列模板`);
+    setShowSaveTemplateModal(true);
+  }
+
+  function doSaveTemplate() {
+    if (!templateNameInput.trim()) return;
     const template: ColumnTemplate = {
       id: uid("template"),
-      name: name.trim(),
+      name: templateNameInput.trim(),
       columns: columnSettings.map((column) => ({ ...column })),
     };
-    void persist({ ...workspace, columnTemplates: [...(workspace.columnTemplates || []), template] });
-    setToast("列模板已保存");
+    const nextTemplates = [...(workspace.columnTemplates || []), template];
+    void persist({ ...workspace, columnTemplates: nextTemplates });
+    setToast(`已成功保存模板 “${templateNameInput.trim()}”`);
+    setShowSaveTemplateModal(false);
   }
 
   function applyColumnTemplate(id: string) {
@@ -652,7 +741,14 @@ export default function Home() {
           <div><h1>我的项目</h1><p>排序&nbsp;&nbsp;<b>最近编辑</b></p></div>
           <div className="projects-actions">
             <label className="search-box"><MagnifyingGlass /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索项目名…" /></label>
-            <button className="pill-button"><SquaresFour /> 模板</button><button className="round-button"><Bell /></button>
+            <button className="pill-button" onClick={() => setShowTemplatesLibraryModal(true)}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4, flexShrink: 0 }}>
+                <rect x="3" y="4" width="7" height="16" rx="2"/>
+                <rect x="14" y="4" width="7" height="16" rx="2"/>
+              </svg>
+              {workspace.columnTemplates?.length ? `0${workspace.columnTemplates.length + 3} ` : ""}模板
+            </button>
+            <button className="round-button"><Bell /></button>
           </div>
         </header>
         <div className="project-grid">
@@ -843,7 +939,62 @@ export default function Home() {
         <button className="back-button" onClick={() => setScreen("projects")}><ArrowLeft /></button>
         <input className="project-name" value={project.name} onChange={(e) => updateProject({ name: e.target.value })} />
         <nav className="flow-nav">{flowTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav>
-        <div className="project-tools"><div className="flash-logo tiny"><CirclesFour weight="fill" /></div><button className="round-button"><Bell /></button><button className="round-button"><DotsThree /></button><button className="pill-button"><ShareNetwork /> 协作</button><button className="pill-button" onClick={() => setScreen("export")}><Export /> 导出</button></div>
+        <div className="project-tools">
+          <div className="flash-logo tiny"><CirclesFour weight="fill" /></div>
+          <button className="round-button"><Bell /></button>
+          <div className="menu-anchor">
+            <button
+              className="round-button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setTopMoreMenu(!topMoreMenu);
+              }}
+              title="更多操作"
+            >
+              <DotsThree weight="bold" />
+            </button>
+            {topMoreMenu && (
+              <div className="action-popover top-more-popover" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopMoreMenu(false);
+                    undo();
+                  }}
+                  disabled={historyIndex <= 0}
+                >
+                  <ArrowUUpLeft /> <span>撤回</span> <kbd>Ctrl Z</kbd>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopMoreMenu(false);
+                    redo();
+                  }}
+                  disabled={historyIndex >= history.length - 1}
+                >
+                  <ArrowUUpRight /> <span>重复</span> <kbd>Ctrl ⇧ Z</kbd>
+                </button>
+                <div className="popover-divider" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopMoreMenu(false);
+                    saveColumnTemplate();
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <rect x="3" y="4" width="7" height="16" rx="2"/>
+                    <rect x="14" y="4" width="7" height="16" rx="2"/>
+                  </svg>
+                  <span>保存模板</span>
+                </button>
+              </div>
+            )}
+          </div>
+          <button className="pill-button"><ShareNetwork /> 协作</button>
+          <button className="pill-button" onClick={() => setScreen("export")}><Export /> 导出</button>
+        </div>
       </header>
 
       {tab === "分镜制作" && (
@@ -895,21 +1046,93 @@ export default function Home() {
                 )}
               </div>
               <div className="menu-anchor">
-                <button className="pill-button" onClick={() => setSettingsMenu(settingsMenu === "display" ? null : "display")}>
+                <button
+                  className="pill-button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setStoryboardSettingsMenu(!storyboardSettingsMenu);
+                  }}
+                >
                   <SlidersHorizontal /> 分镜设置 <CaretDown />
                 </button>
-                {settingsMenu === "display" && (
-                  <div className="action-popover display-menu">
-                    <button><TextT /> 文字大小 <b>小</b></button>
-                    <button><ImageSquare /> 图片比例 <b>16:9</b></button>
-                    <button><ImageSquare /> 图片适配 <b>适应</b></button>
-                    <button><Rows /> 文字对齐 <b>居中</b></button>
-                    <button><GearSix /> 镜号设置</button>
+                {storyboardSettingsMenu && (
+                  <div className="action-popover storyboard-settings-popover" onClick={(e) => e.stopPropagation()}>
+                    <div className="popover-section-title">分镜画幅比例</div>
+                    <div className="format-pills">
+                      {["16:9", "9:16", "4:3", "2.39:1"].map((fmt) => (
+                        <button
+                          key={fmt}
+                          type="button"
+                          className={project.format === fmt ? "pill-item active" : "pill-item"}
+                          onClick={() => {
+                            updateProject({ format: fmt });
+                            setToast(`已设置画幅为 ${fmt}`);
+                          }}
+                        >
+                          {fmt}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="popover-divider" />
+                    <div className="popover-section-title">套用模板</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStoryboardSettingsMenu(false);
+                        commitColumns(standard7Columns.map((c) => ({ ...c })));
+                        setToast("已套用 标准7列 模板");
+                      }}
+                    >
+                      标准 7 列
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStoryboardSettingsMenu(false);
+                        commitColumns(movie8Columns.map((c) => ({ ...c })));
+                        setToast("已套用 影视商业8列 模板");
+                      }}
+                    >
+                      影视商业 8 列
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStoryboardSettingsMenu(false);
+                        commitColumns(minimal4Columns.map((c) => ({ ...c })));
+                        setToast("已套用 极简4列 模板");
+                      }}
+                    >
+                      极简 4 列
+                    </button>
+                    {(workspace.columnTemplates || []).map((tmpl) => (
+                      <button
+                        key={tmpl.id}
+                        type="button"
+                        onClick={() => {
+                          setStoryboardSettingsMenu(false);
+                          applyColumnTemplate(tmpl.id);
+                          setToast(`已套用模板 “${tmpl.name}”`);
+                        }}
+                      >
+                        ⭐ {tmpl.name}
+                      </button>
+                    ))}
+                    <div className="popover-divider" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStoryboardSettingsMenu(false);
+                        saveColumnTemplate();
+                      }}
+                    >
+                      <SquaresFour /> 保存当前列为模板…
+                    </button>
                   </div>
                 )}
               </div>
               <button className="pill-button" onClick={() => setShowColumnModal(true)}>
-                <GearSix weight="bold" /> 列设置
+                <Nut weight="bold" /> 列设置
               </button>
             </div>
           </div>
@@ -917,12 +1140,102 @@ export default function Home() {
             <div className="table-head" style={{ gridTemplateColumns: tableTemplate }}>
               <span>排序</span>
               <span>镜号</span>
-              {visibleColumnSettings.map((column) => <span key={column.key}>{column.label}</span>)}
-              <span>
-                <button className="head-add-column" title="列设置与添加列" onClick={() => setShowColumnModal(true)}>
+              {visibleColumnSettings.map((column) => (
+                <div className="col-head-cell" key={column.key}>
+                  <span className="col-header-title">{column.label}</span>
+                  <button
+                    type="button"
+                    className="col-menu-trigger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveColMenu(activeColMenu === column.key ? null : column.key);
+                    }}
+                    title="列操作"
+                  >
+                    <CaretDown weight="bold" />
+                  </button>
+                  {activeColMenu === column.key && (
+                    <div className="action-popover col-quick-menu" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveColMenu(null);
+                          setEditingCol({ ...column });
+                        }}
+                      >
+                        <PencilSimple /> 编辑列
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveColMenu(null);
+                          hideColumn(column.key);
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                          <circle cx="12" cy="12" r="10"/>
+                          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                        </svg>
+                        隐藏列
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="table-head-add">
+                <button
+                  type="button"
+                  className="head-add-column-btn"
+                  title="添加新列或设置列"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAddColPopover(!showAddColPopover);
+                  }}
+                >
                   <Plus weight="bold" />
                 </button>
-              </span>
+                {showAddColPopover && (
+                  <div className="action-popover add-col-popover" onClick={(e) => e.stopPropagation()}>
+                    <h4>快速添加列</h4>
+                    <div className="quick-add-col-inputs">
+                      <input
+                        placeholder="输入列名称（如：机位、服装等）…"
+                        value={newColName}
+                        onChange={(e) => setNewColName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddCustomCol();
+                            setShowAddColPopover(false);
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        className="yellow-btn"
+                        onClick={() => {
+                          handleAddCustomCol();
+                          setShowAddColPopover(false);
+                        }}
+                      >
+                        添加
+                      </button>
+                    </div>
+                    <div className="popover-divider" />
+                    <button
+                      type="button"
+                      className="full-width-text-btn"
+                      onClick={() => {
+                        setShowAddColPopover(false);
+                        setShowColumnModal(true);
+                      }}
+                    >
+                      打开完整列设置面板…
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             {project.shots.map((shot) => (
               <div className="table-wrap" key={shot.id}>
@@ -1247,6 +1560,35 @@ export default function Home() {
               >
                 极简4列
               </button>
+              {(workspace.columnTemplates || []).map((tmpl) => (
+                <div key={tmpl.id} className="custom-preset-chip">
+                  <button
+                    type="button"
+                    className="preset-btn"
+                    onClick={() => {
+                      applyColumnTemplate(tmpl.id);
+                      setToast(`已套用模板 “${tmpl.name}”`);
+                    }}
+                  >
+                    ⭐ {tmpl.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="chip-del-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`确定删除模板 “${tmpl.name}”？`)) {
+                        const updated = (workspace.columnTemplates || []).filter((t) => t.id !== tmpl.id);
+                        void persist({ ...workspace, columnTemplates: updated });
+                        setToast(`已删除模板 “${tmpl.name}”`);
+                      }
+                    }}
+                    title="删除此模板"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
 
             <div className="column-settings-list">
@@ -1364,6 +1706,210 @@ export default function Home() {
               >
                 完成
               </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {editingCol && (
+        <div className="modal-overlay" onClick={() => setEditingCol(null)}>
+          <section className="edit-modal compact-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>编辑列属性</h2>
+                <small>调整列名称、宽度与显隐</small>
+              </div>
+              <button onClick={() => setEditingCol(null)}><X /></button>
+            </header>
+            <label>
+              列名称
+              <input
+                value={editingCol.label}
+                onChange={(e) => setEditingCol({ ...editingCol, label: e.target.value })}
+                placeholder="输入列名称"
+                autoFocus
+              />
+            </label>
+            <label>
+              列宽 (当前: {editingCol.width}px)
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px" }}>
+                <input
+                  type="range"
+                  min={60}
+                  max={480}
+                  step={5}
+                  value={editingCol.width}
+                  onChange={(e) => setEditingCol({ ...editingCol, width: Number(e.target.value) })}
+                  style={{ flex: 1, accentColor: "#ffbe18" }}
+                />
+                <span style={{ fontSize: "12px", fontWeight: "bold", width: "45px", textAlign: "right" }}>
+                  {editingCol.width}px
+                </span>
+              </div>
+            </label>
+            <div className="modal-actions" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "20px" }}>
+              <div>
+                {editingCol.custom ? (
+                  <button
+                    type="button"
+                    className="pill-button danger-control"
+                    onClick={() => {
+                      commitColumns(columnSettings.filter((c) => c.key !== editingCol.key));
+                      setToast(`已删除列“${editingCol.label}”`);
+                      setEditingCol(null);
+                    }}
+                  >
+                    <Trash /> 删除此列
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="pill-button"
+                    onClick={() => {
+                      hideColumn(editingCol.key);
+                      setEditingCol(null);
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 4 }}>
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                    </svg>
+                    隐藏此列
+                  </button>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button type="button" className="pill-button" onClick={() => setEditingCol(null)}>取消</button>
+                <button
+                  type="button"
+                  className="yellow-btn"
+                  onClick={() => {
+                    commitColumns(columnSettings.map((c) => c.key === editingCol.key ? editingCol : c));
+                    setToast(`已更新“${editingCol.label}”列设置`);
+                    setEditingCol(null);
+                  }}
+                >
+                  保存修改
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+      {showSaveTemplateModal && (
+        <div className="modal-overlay" onClick={() => setShowSaveTemplateModal(false)}>
+          <section className="edit-modal compact-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>保存为分镜模板</h2>
+                <small>将当前分镜的列名、宽度、顺序保存为预设模板</small>
+              </div>
+              <button onClick={() => setShowSaveTemplateModal(false)}><X /></button>
+            </header>
+            <label>
+              模板名称
+              <input
+                value={templateNameInput}
+                onChange={(e) => setTemplateNameInput(e.target.value)}
+                placeholder="例如：商业短片标准模版、数码评测分镜模版"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    doSaveTemplate();
+                  }
+                }}
+              />
+            </label>
+            <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: "8px", margin: "14px 0", fontSize: "12px", color: "#64748b" }}>
+              <b>包含列：</b> {visibleColumnSettings.map((c) => c.label).join(" · ")}
+            </div>
+            <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+              <button type="button" className="pill-button" onClick={() => setShowSaveTemplateModal(false)}>取消</button>
+              <button
+                type="button"
+                className="yellow-btn"
+                onClick={doSaveTemplate}
+              >
+                保存模板
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {showTemplatesLibraryModal && (
+        <div className="modal-overlay" onClick={() => setShowTemplatesLibraryModal(false)}>
+          <section className="edit-modal" style={{ maxWidth: "600px" }} onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>分镜模板库</h2>
+                <small>管理并查看预设及自定义分镜列模板</small>
+              </div>
+              <button onClick={() => setShowTemplatesLibraryModal(false)}><X /></button>
+            </header>
+            <div style={{ margin: "16px 0", maxHeight: "60vh", overflowY: "auto" }}>
+              <h4 style={{ fontSize: "13px", fontWeight: "700", marginBottom: "10px", color: "#334155" }}>系统预设模板</h4>
+              <div style={{ display: "grid", gap: "10px" }}>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", background: "#f8fafc" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <b>标准 7 列</b>
+                    <span style={{ fontSize: "11px", color: "#64748b" }}>7 列</span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b" }}>画面 · 景别 · 时长 · 内容 · 备注 · 卖点 · 道具</div>
+                </div>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", background: "#f8fafc" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <b>影视商业 8 列</b>
+                    <span style={{ fontSize: "11px", color: "#64748b" }}>8 列</span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b" }}>画面 · 景别 · 运镜 · 时长 · 声音/台词 · 画面描述 · 道具 · 备注</div>
+                </div>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", background: "#f8fafc" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <b>极简 4 列</b>
+                    <span style={{ fontSize: "11px", color: "#64748b" }}>4 列</span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#64748b" }}>画面 · 景别 · 时长 · 内容</div>
+                </div>
+              </div>
+
+              <h4 style={{ fontSize: "13px", fontWeight: "700", margin: "20px 0 10px", color: "#334155" }}>
+                自定义保存模板 ({workspace.columnTemplates?.length || 0})
+              </h4>
+              {(!workspace.columnTemplates || workspace.columnTemplates.length === 0) ? (
+                <p style={{ fontSize: "12px", color: "#94a3b8", fontStyle: "italic" }}>
+                  暂无自定义保存模板。在分镜制作页面右上角“更多操作(...)”或“列设置”中可将当前列配置保存为模板。
+                </p>
+              ) : (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {workspace.columnTemplates.map((tmpl) => (
+                    <div key={tmpl.id} style={{ border: "1px solid #cbd5e1", borderRadius: "8px", padding: "12px", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <b style={{ color: "#0f172a" }}>⭐ {tmpl.name}</b>
+                        <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
+                          {tmpl.columns.filter((c) => c.visible).map((c) => c.label).join(" · ")}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="pill-button danger-control"
+                        style={{ fontSize: "11px", padding: "4px 8px" }}
+                        onClick={() => {
+                          if (confirm(`确定删除模板“${tmpl.name}”？`)) {
+                            const updated = (workspace.columnTemplates || []).filter((t) => t.id !== tmpl.id);
+                            void persist({ ...workspace, columnTemplates: updated });
+                            setToast(`已删除模板“${tmpl.name}”`);
+                          }
+                        }}
+                      >
+                        <Trash /> 删除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="yellow-btn" onClick={() => setShowTemplatesLibraryModal(false)}>关闭</button>
             </div>
           </section>
         </div>

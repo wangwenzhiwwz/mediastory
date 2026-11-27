@@ -297,5 +297,49 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-27T01:32:16.068Z"
+  "updatedAt": "2026-11-27T02:02:03.199Z",
+  "columnTemplates": [
+    {
+      "id": "template-1795744923134-sg3o8",
+      "name": "评测分镜标准模板",
+      "columns": [
+        {
+          "key": "image",
+          "label": "画面",
+          "width": 180,
+          "visible": true
+        },
+        {
+          "key": "shotSize",
+          "label": "景别",
+          "width": 80,
+          "visible": true
+        },
+        {
+          "key": "duration",
+          "label": "时长 (秒)",
+          "width": 85,
+          "visible": true
+        },
+        {
+          "key": "content",
+          "label": "内容",
+          "width": 320,
+          "visible": true
+        },
+        {
+          "key": "note",
+          "label": "备注",
+          "width": 190,
+          "visible": true
+        },
+        {
+          "key": "sellingPoint",
+          "label": "卖点",
+          "width": 150,
+          "visible": true
+        }
+      ]
+    }
+  ]
 }
