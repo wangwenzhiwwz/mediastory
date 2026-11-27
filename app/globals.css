@@ -678,4 +678,103 @@ svg{width:20px;height:20px}.wide{width:100%}.error{color:#c7463d}.muted{color:va
   height: 16px;
 }
 
+/* Row selection circle checkbox & move popovers */
+.head-select-all-btn, .row-select-btn {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.circle-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #cbd5e1;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  transition: all 0.15s ease;
+}
+.head-select-all-btn:hover .circle-checkbox,
+.row-select-btn:hover .circle-checkbox {
+  border-color: #ffbe18;
+}
+.circle-checkbox.checked {
+  background: #ffbe18;
+  border-color: #ffbe18;
+  color: #fff;
+}
+.circle-checkbox svg {
+  width: 10px;
+  height: 10px;
+}
+.drag-col-cell, .check-col-cell {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-right: 1px dashed #e2e8f0;
+}
+.shot-no-cell {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-right: 1px dashed #e2e8f0;
+}
+
+.dock-separator {
+  width: 1px;
+  height: 16px;
+  background: #e2e8f0;
+  margin: 0 4px;
+}
+
+/* Move shot popover */
+.move-shot-popover {
+  top: auto !important;
+  bottom: calc(100% + 12px) !important;
+  left: 50% !important;
+  right: auto !important;
+  transform: translateX(-50%) !important;
+  width: 112px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.16);
+  z-index: 100;
+  background: #ffffff;
+}
+.move-shot-popover button {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: center;
+  justify-content: center;
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+.move-shot-popover button:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.move-shot-popover .popover-divider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 2px 0;
+}
+.batch-dock-btn.active {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
 

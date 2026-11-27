@@ -148,6 +148,14 @@ export default function Home() {
   const [batchInputValue, setBatchInputValue] = useState("");
   const [showBatchPasteModal, setShowBatchPasteModal] = useState(false);
   const [batchPasteValue, setBatchPasteValue] = useState("");
+  const [showMoveMenu, setShowMoveMenu] = useState(false);
+  const [showMovePositionModal, setShowMovePositionModal] = useState(false);
+  const [moveTargetPosition, setMoveTargetPosition] = useState("1");
+  const [showBatchShotsFillModal, setShowBatchShotsFillModal] = useState(false);
+  const [batchFillShotSize, setBatchFillShotSize] = useState("");
+  const [batchFillDuration, setBatchFillDuration] = useState("");
+  const [batchFillContent, setBatchFillContent] = useState("");
+  const [batchFillNote, setBatchFillNote] = useState("");
 
   const project = workspace.projects.find((p) => p.id === workspace.activeProjectId) ?? workspace.projects[0];
   const projects = workspace.projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.client.toLowerCase().includes(search.toLowerCase()));
@@ -174,7 +182,7 @@ export default function Home() {
       if (column.key === "content") return `minmax(${column.width || 240}px, 1fr)`;
       return `${column.width}px`;
     });
-    return ["48px", "52px", ...colWidths, "44px"].join(" ");
+    return ["44px", "28px", "46px", ...colWidths, "44px"].join(" ");
   }, [visibleColumnSettings]);
 
   useEffect(() => {
@@ -264,6 +272,7 @@ export default function Home() {
       setTopMoreMenu(false);
       setStoryboardSettingsMenu(false);
       setNewProjectMenu(false);
+      setShowMoveMenu(false);
     };
     window.addEventListener("paste", handlePaste);
     window.addEventListener("keydown", handleKey);
@@ -418,6 +427,105 @@ export default function Home() {
   function updateShot(id: string, patch: Partial<Shot>) {
     if (!project) return;
     updateProject({ shots: project.shots.map((shot) => shot.id === id ? { ...shot, ...patch } : shot) });
+  }
+
+  function isEmptyShot(shot: Shot): boolean {
+    const isCustomImage = Boolean(shot.image && shot.image.trim() !== "" && shot.image !== blankImage);
+    const isFallbackImage = shot.image === undefined && Boolean(fallbackImages[(shot.no - 1) % fallbackImages.length]);
+    const hasDisplayImage = isCustomImage || isFallbackImage;
+
+    const hasTextContent = Boolean(
+      (shot.description && shot.description.trim() !== "") ||
+      (shot.dialogue && shot.dialogue.trim() !== "") ||
+      (shot.note && shot.note.trim() !== "") ||
+      (shot.shotSize && shot.shotSize.trim() !== "")
+    );
+
+    if (!hasDisplayImage && !hasTextContent) return true;
+    if (!hasDisplayImage) return true;
+    return false;
+  }
+
+  function selectEmptyShots() {
+    if (!project) return;
+    const emptyShots = project.shots.filter(isEmptyShot);
+    if (emptyShots.length === 0) {
+      setToast("当前分镜中暂无空镜头");
+      return;
+    }
+    setSelectedShotIds(emptyShots.map((s) => s.id));
+    setToast(`已选中 ${emptyShots.length} 个空镜头`);
+  }
+
+  function toggleSelectShot(id: string) {
+    setSelectedShotIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  }
+
+  function moveSelectedShots(mode: "front" | "end" | "position", targetPos?: number) {
+    if (!project || selectedShotIds.length === 0) return;
+    const selected = project.shots.filter((s) => selectedShotIds.includes(s.id));
+    const unselected = project.shots.filter((s) => !selectedShotIds.includes(s.id));
+
+    let nextShots: Shot[] = [];
+    if (mode === "front") {
+      nextShots = [...selected, ...unselected];
+    } else if (mode === "end") {
+      nextShots = [...unselected, ...selected];
+    } else if (mode === "position") {
+      const idx = Math.max(0, Math.min(unselected.length, (targetPos || 1) - 1));
+      nextShots = [
+        ...unselected.slice(0, idx),
+        ...selected,
+        ...unselected.slice(idx),
+      ];
+    }
+    const renumbered = nextShots.map((s, i) => ({ ...s, no: i + 1 }));
+    updateProject({ shots: renumbered });
+    setToast(
+      mode === "front"
+        ? `已将 ${selected.length} 个镜头移至最前`
+        : mode === "end"
+        ? `已将 ${selected.length} 个镜头移至最后`
+        : `已将 ${selected.length} 个镜头移动至第 ${targetPos} 镜`
+    );
+    setShowMoveMenu(false);
+    setShowMovePositionModal(false);
+  }
+
+  function duplicateSelectedShots() {
+    if (!project || selectedShotIds.length === 0) return;
+    const nextShots: Shot[] = [];
+    const newSelectedIds: string[] = [];
+
+    project.shots.forEach((shot) => {
+      nextShots.push(shot);
+      if (selectedShotIds.includes(shot.id)) {
+        const clonedId = uid("shot");
+        newSelectedIds.push(clonedId);
+        nextShots.push({
+          ...shot,
+          id: clonedId,
+          customFields: { ...(shot.customFields || {}) },
+        });
+      }
+    });
+
+    const renumbered = nextShots.map((s, i) => ({ ...s, no: i + 1 }));
+    updateProject({ shots: renumbered });
+    setSelectedShotIds(newSelectedIds);
+    setToast(`已复制 ${selectedShotIds.length} 个镜头`);
+  }
+
+  function applyBatchFillToShots(patch: Partial<Shot>) {
+    if (!project || selectedShotIds.length === 0) return;
+    const nextShots = project.shots.map((s) =>
+      selectedShotIds.includes(s.id) ? { ...s, ...patch } : s
+    );
+    updateProject({ shots: nextShots });
+    setToast(`已批量更新 ${selectedShotIds.length} 个镜头内容`);
+    setShowBatchShotsFillModal(false);
   }
 
   function getCellValue(shot: Shot, colKey: string): string {
@@ -850,7 +958,9 @@ export default function Home() {
 
   function imageFor(shot: Shot) {
     if (shot.image !== undefined) return shot.image || blankImage;
-    return fallbackImages[(shot.no - 1) % fallbackImages.length];
+    const match = shot.id.match(/\d+/);
+    const index = match ? parseInt(match[0], 10) - 1 : 0;
+    return fallbackImages[Math.max(0, index) % fallbackImages.length];
   }
 
   function createNoticeDraft() {
@@ -1270,10 +1380,51 @@ export default function Home() {
                     <Check /> 选择 <CaretDown />
                   </button>
                   {selectionMenu && (
-                    <div className="action-popover selection-menu">
-                      <button onClick={() => { setSelectedShotIds(project.shots.map((s) => s.id)); setSelectionMenu(false); }}>全选镜头</button>
-                      <button onClick={() => { setSelectedShotIds(project.shots.filter((s) => s.status === "待拍摄").map((s) => s.id)); setSelectionMenu(false); }}>选择待拍摄</button>
-                      <button onClick={() => { setSelectedShotIds([]); setSelectionMenu(false); }}>取消选择</button>
+                    <div className="action-popover selection-menu" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectionMenu(false);
+                          selectEmptyShots();
+                        }}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                          <rect x="3" y="3" width="18" height="18" rx="3" strokeDasharray="3 3"/>
+                          <path d="M12 8v8M8 12h8"/>
+                        </svg>
+                        选中空镜头
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedShotIds(project.shots.map((s) => s.id));
+                          setSelectionMenu(false);
+                          setToast(`已全选 ${project.shots.length} 个镜头`);
+                        }}
+                      >
+                        <Check weight="bold" /> 全选镜头
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nonEmpties = project.shots.filter((s) => !isEmptyShot(s)).map((s) => s.id);
+                          setSelectedShotIds(nonEmpties);
+                          setSelectionMenu(false);
+                          setToast(`已选中 ${nonEmpties.length} 个已有画面的镜头`);
+                        }}
+                      >
+                        <CirclesFour /> 选中已制作镜头
+                      </button>
+                      <div className="popover-divider" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedShotIds([]);
+                          setSelectionMenu(false);
+                        }}
+                      >
+                        <X /> 取消选择
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1372,6 +1523,22 @@ export default function Home() {
           <div className="shot-table">
             <div className="table-head" style={{ gridTemplateColumns: tableTemplate }}>
               <span>排序</span>
+              <button
+                type="button"
+                className="head-select-all-btn"
+                onClick={() => {
+                  if (selectedShotIds.length === project.shots.length) {
+                    setSelectedShotIds([]);
+                  } else {
+                    setSelectedShotIds(project.shots.map((s) => s.id));
+                  }
+                }}
+                title={selectedShotIds.length === project.shots.length ? "取消全选" : "全选镜头"}
+              >
+                <span className={`circle-checkbox ${selectedShotIds.length === project.shots.length && project.shots.length > 0 ? "checked" : ""}`}>
+                  {selectedShotIds.length === project.shots.length && project.shots.length > 0 && <Check weight="bold" />}
+                </span>
+              </button>
               <span>镜号</span>
               {visibleColumnSettings.map((column) => (
                 <div className="col-head-cell" key={column.key}>
@@ -1505,7 +1672,7 @@ export default function Home() {
                     }
                   }}
                 >
-                  <div>
+                  <div className="drag-col-cell">
                     <button
                       className="drag-button"
                       draggable={!batchMode}
@@ -1521,7 +1688,22 @@ export default function Home() {
                       <List weight="bold" />
                     </button>
                   </div>
-                  <b>{shot.no}</b>
+                  <div className="check-col-cell">
+                    <button
+                      type="button"
+                      className="row-select-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSelectShot(shot.id);
+                      }}
+                      title={selectedShotIds.includes(shot.id) ? "取消选中该镜头" : "选中该镜头"}
+                    >
+                      <span className={`circle-checkbox ${selectedShotIds.includes(shot.id) ? "checked" : ""}`}>
+                        {selectedShotIds.includes(shot.id) && <Check weight="bold" />}
+                      </span>
+                    </button>
+                  </div>
+                  <b className="shot-no-cell">{shot.no}</b>
                   {visibleColumnSettings.map((column) => {
                     const cellKey = `${shot.id}:::${column.key}`;
                     const isCellSelected = selectedCells.has(cellKey);
@@ -2374,6 +2556,212 @@ export default function Home() {
             <kbd>ESC</kbd> 退出批量模式
           </div>
         </>
+      )}
+
+      {selectedShotIds.length > 0 && !batchMode && (
+        <aside className="batch-actions-dock">
+          <span className="batch-selected-count">
+            已选中{selectedShotIds.length}个项目
+          </span>
+          <div className="dock-separator" />
+          <div className="menu-anchor" style={{ position: "relative" }}>
+            <button
+              type="button"
+              className={`batch-dock-btn ${showMoveMenu ? "active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMoveMenu(!showMoveMenu);
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <line x1="4" y1="6" x2="20" y2="6"/>
+                <line x1="4" y1="12" x2="20" y2="12"/>
+                <line x1="4" y1="18" x2="20" y2="18"/>
+                <circle cx="8" cy="6" r="2" fill="currentColor"/>
+                <circle cx="16" cy="12" r="2" fill="currentColor"/>
+                <circle cx="10" cy="18" r="2" fill="currentColor"/>
+              </svg>
+              移动镜头
+            </button>
+            {showMoveMenu && (
+              <div className="action-popover move-shot-popover" onClick={(e) => e.stopPropagation()}>
+                <button type="button" onClick={() => moveSelectedShots("front")}>
+                  移至最前
+                </button>
+                <div className="popover-divider" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoveMenu(false);
+                    setMoveTargetPosition("1");
+                    setShowMovePositionModal(true);
+                  }}
+                >
+                  输入位置
+                </button>
+                <div className="popover-divider" />
+                <button type="button" onClick={() => moveSelectedShots("end")}>
+                  移至最后
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="batch-dock-btn"
+            onClick={duplicateSelectedShots}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <rect x="8" y="8" width="13" height="13" rx="2" ry="2"/>
+              <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+            </svg>
+            复制镜头
+          </button>
+          <button
+            type="button"
+            className="batch-dock-btn"
+            onClick={() => setShowBatchShotsFillModal(true)}
+            title="批量修改选中镜头的内容、景别或时长"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            批量填入
+          </button>
+          <button
+            type="button"
+            className="batch-dock-btn danger"
+            onClick={deleteSelectedShots}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+            </svg>
+            删除镜头
+          </button>
+          <button
+            type="button"
+            className="batch-dock-btn exit"
+            onClick={() => setSelectedShotIds([])}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+            </svg>
+            取消选择
+          </button>
+        </aside>
+      )}
+
+      {showMovePositionModal && (
+        <div className="modal-overlay" onClick={() => setShowMovePositionModal(false)}>
+          <section className="edit-modal compact-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>移动镜头到指定位置</h2>
+                <small>将选中的 {selectedShotIds.length} 个镜头移动到指定镜号前</small>
+              </div>
+              <button onClick={() => setShowMovePositionModal(false)}><X /></button>
+            </header>
+            <label style={{ marginTop: 14 }}>
+              目标镜号 (1 - {project.shots.length})
+              <input
+                type="number"
+                min={1}
+                max={project.shots.length}
+                value={moveTargetPosition}
+                onChange={(e) => setMoveTargetPosition(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    moveSelectedShots("position", Number(moveTargetPosition) || 1);
+                  }
+                }}
+              />
+            </label>
+            <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button type="button" className="pill-button" onClick={() => setShowMovePositionModal(false)}>取消</button>
+              <button
+                type="button"
+                className="yellow-btn"
+                onClick={() => moveSelectedShots("position", Number(moveTargetPosition) || 1)}
+              >
+                确定移动
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showBatchShotsFillModal && (
+        <div className="modal-overlay" onClick={() => setShowBatchShotsFillModal(false)}>
+          <section className="edit-modal compact-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>批量填入/编辑镜头</h2>
+                <small>已选中 {selectedShotIds.length} 个镜头</small>
+              </div>
+              <button onClick={() => setShowBatchShotsFillModal(false)}><X /></button>
+            </header>
+            <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+              <label>
+                统一景别
+                <select
+                  value={batchFillShotSize}
+                  onChange={(e) => setBatchFillShotSize(e.target.value)}
+                >
+                  <option value="">保持原样（不修改）</option>
+                  {shotSizes.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
+              <label>
+                统一时长 (秒)
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="留空表示不修改时长"
+                  value={batchFillDuration}
+                  onChange={(e) => setBatchFillDuration(e.target.value)}
+                />
+              </label>
+              <label>
+                统一内容描述
+                <textarea
+                  rows={2}
+                  placeholder="留空表示不修改内容"
+                  value={batchFillContent}
+                  onChange={(e) => setBatchFillContent(e.target.value)}
+                />
+              </label>
+              <label>
+                统一备注
+                <input
+                  placeholder="留空表示不修改备注"
+                  value={batchFillNote}
+                  onChange={(e) => setBatchFillNote(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button type="button" className="pill-button" onClick={() => setShowBatchShotsFillModal(false)}>取消</button>
+              <button
+                type="button"
+                className="yellow-btn"
+                onClick={() => {
+                  const patch: Partial<Shot> = {};
+                  if (batchFillShotSize) patch.shotSize = batchFillShotSize;
+                  if (batchFillDuration) patch.duration = Number(batchFillDuration) || 0;
+                  if (batchFillContent) patch.description = batchFillContent;
+                  if (batchFillNote) patch.note = batchFillNote;
+                  applyBatchFillToShots(patch);
+                }}
+              >
+                应用修改 ({selectedShotIds.length})
+              </button>
+            </div>
+          </section>
+        </div>
       )}
       <input
         ref={projectExcelInputRef}
