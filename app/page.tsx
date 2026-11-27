@@ -130,6 +130,44 @@ export const minimal4Columns: ColumnSetting[] = [
   { key: "note", label: "备注", width: 200, visible: true },
 ];
 
+export const builtinTemplates: ColumnTemplate[] = [
+  {
+    id: "builtin-xie",
+    name: "谢老师",
+    columns: [
+      { key: "image", label: "画面", width: 180, visible: true },
+      { key: "shotSize", label: "景别", width: 80, visible: true },
+      { key: "reference", label: "参考", width: 140, visible: true },
+      { key: "duration", label: "时长 (秒)", width: 85, visible: true },
+      { key: "content", label: "内容", width: 320, visible: true },
+      { key: "note", label: "备注", width: 180, visible: true },
+    ],
+  },
+  {
+    id: "builtin-simple",
+    name: "简洁",
+    columns: [
+      { key: "image", label: "画面", width: 200, visible: true },
+      { key: "shotSize", label: "景别", width: 90, visible: true },
+      { key: "duration", label: "时长 (秒)", width: 90, visible: true },
+      { key: "content", label: "内容", width: 340, visible: true },
+      { key: "note", label: "备注", width: 200, visible: true },
+    ],
+  },
+  {
+    id: "builtin-visual",
+    name: "画面",
+    columns: [
+      { key: "image", label: "画面", width: 220, visible: true },
+      { key: "reference", label: "参考", width: 140, visible: true },
+      { key: "content", label: "内容", width: 320, visible: true },
+      { key: "note", label: "备注", width: 180, visible: true },
+      { key: "duration", label: "时长 (秒)", width: 85, visible: true },
+      { key: "sound", label: "声音", width: 160, visible: true },
+    ],
+  },
+];
+
 const defaultColumns: ColumnSetting[] = standard7Columns;
 const blankImage = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="100%" height="100%" fill="#f0f2f3"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#a8adb0" font-family="sans-serif" font-size="28">未添加图片</text></svg>`,
@@ -198,6 +236,11 @@ export default function Home() {
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [templateNameInput, setTemplateNameInput] = useState("");
   const [showTemplatesLibraryModal, setShowTemplatesLibraryModal] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("builtin-xie");
+  const [templateMenuId, setTemplateMenuId] = useState<string | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<ColumnTemplate | null>(null);
+  const [showNewTemplateModal, setShowNewTemplateModal] = useState<boolean>(false);
+  const [newTemplateName, setNewTemplateName] = useState<string>("");
   const [topMoreMenu, setTopMoreMenu] = useState(false);
   const [storyboardSettingsMenu, setStoryboardSettingsMenu] = useState(false);
   const [history, setHistory] = useState<Array<{ shots: Shot[]; columnSettings: ColumnSetting[] }>>([]);
@@ -259,6 +302,20 @@ export default function Home() {
     const timer = setTimeout(() => setToast(""), 2200);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    const handleGlobalDragEnd = () => {
+      if (typeof document !== "undefined" && document.body.classList.contains("is-dragging-shot")) {
+        document.body.classList.remove("is-dragging-shot");
+      }
+    };
+    window.addEventListener("dragend", handleGlobalDragEnd);
+    window.addEventListener("drop", handleGlobalDragEnd);
+    return () => {
+      window.removeEventListener("dragend", handleGlobalDragEnd);
+      window.removeEventListener("drop", handleGlobalDragEnd);
+    };
+  }, []);
 
   useEffect(() => {
     const pasteTarget = hoveredImageId || selectedImageId;
@@ -480,8 +537,74 @@ export default function Home() {
   }
 
   function applyColumnTemplate(id: string) {
-    const template = workspace.columnTemplates?.find((item) => item.id === id);
+    const all = [...builtinTemplates, ...(workspace.columnTemplates || [])];
+    const template = all.find((item) => item.id === id);
     if (template) commitColumns(template.columns.map((column) => ({ ...column })));
+  }
+
+  function applyColumnTemplateObj(tmpl: ColumnTemplate) {
+    commitColumns(tmpl.columns.map((c) => ({ ...c })));
+    setToast(`已应用“${tmpl.name}”分镜模板`);
+    setShowTemplatesLibraryModal(false);
+  }
+
+  function handleSaveNewTemplate() {
+    const name = newTemplateName.trim() || `自定义模板 ${(workspace.columnTemplates?.length || 0) + 1}`;
+    const colsToSave = columnSettings.length ? columnSettings : defaultColumns;
+    const newTmpl: ColumnTemplate = {
+      id: uid("tmpl"),
+      name,
+      columns: colsToSave.map((c) => ({ ...c })),
+    };
+    const nextTemplates = [...(workspace.columnTemplates || []), newTmpl];
+    void persist({ ...workspace, columnTemplates: nextTemplates });
+    setShowNewTemplateModal(false);
+    setSelectedTemplateId(newTmpl.id);
+    setToast(`已成功创建模板“${name}”`);
+  }
+
+  function handleSaveEditedTemplate() {
+    if (!editingTemplate) return;
+    const name = editingTemplate.name.trim() || "未命名模板";
+    const isBuiltin = builtinTemplates.some((b) => b.id === editingTemplate.id);
+    let nextTemplates = [...(workspace.columnTemplates || [])];
+    if (isBuiltin) {
+      const forked: ColumnTemplate = {
+        ...editingTemplate,
+        id: uid("tmpl"),
+        name: `${name} (自定义)`,
+      };
+      nextTemplates.push(forked);
+      setSelectedTemplateId(forked.id);
+      setToast(`已另存为自定义模板“${forked.name}”`);
+    } else {
+      nextTemplates = nextTemplates.map((t) => (t.id === editingTemplate.id ? { ...editingTemplate, name } : t));
+      setToast(`已保存模板“${name}”`);
+    }
+    void persist({ ...workspace, columnTemplates: nextTemplates });
+    setEditingTemplate(null);
+  }
+
+  function handleDeleteTemplate(id: string, name: string) {
+    if (!confirm(`确定删除模板“${name}”？`)) return;
+    const nextTemplates = (workspace.columnTemplates || []).filter((t) => t.id !== id);
+    void persist({ ...workspace, columnTemplates: nextTemplates });
+    setTemplateMenuId(null);
+    if (selectedTemplateId === id) setSelectedTemplateId("builtin-xie");
+    setToast(`已删除模板“${name}”`);
+  }
+
+  function handleDuplicateTemplate(tmpl: ColumnTemplate) {
+    const copy: ColumnTemplate = {
+      id: uid("tmpl"),
+      name: `${tmpl.name} 副本`,
+      columns: tmpl.columns.map((c) => ({ ...c })),
+    };
+    const nextTemplates = [...(workspace.columnTemplates || []), copy];
+    void persist({ ...workspace, columnTemplates: nextTemplates });
+    setTemplateMenuId(null);
+    setSelectedTemplateId(copy.id);
+    setToast(`已复制模板“${copy.name}”`);
   }
 
   function updateShot(id: string, patch: Partial<Shot>) {
@@ -943,25 +1066,32 @@ export default function Home() {
   function reorderShots(sourceId: string, targetId: string, position: "before" | "after" = "after") {
     if (!project || !sourceId || sourceId === targetId) return;
     const shots = [...project.shots];
-    const sourceIndex = shots.findIndex((s) => s.id === sourceId);
-    if (sourceIndex === -1) return;
-    const [moved] = shots.splice(sourceIndex, 1);
+    const sourceIdx = shots.findIndex((s) => s.id === sourceId);
+    const targetIdx = shots.findIndex((s) => s.id === targetId);
+    if (sourceIdx === -1 || targetIdx === -1) return;
 
-    let targetIndex = shots.findIndex((s) => s.id === targetId);
-    if (targetIndex === -1) {
-      shots.push(moved);
-    } else {
-      if (position === "after") {
-        targetIndex += 1;
-      }
-      shots.splice(targetIndex, 0, moved);
-    }
+    const [moved] = shots.splice(sourceIdx, 1);
+    const newTargetIdx = shots.findIndex((s) => s.id === targetId);
+    const insertIdx = position === "after" ? newTargetIdx + 1 : newTargetIdx;
+    shots.splice(insertIdx, 0, moved);
 
     updateProject({ shots: shots.map((s, idx) => ({ ...s, no: idx + 1 })) });
     setDragId("");
     setDropTargetId("");
     setDropPosition(null);
-    setToast("镜头顺序已更新");
+    if (typeof document !== "undefined") {
+      document.body.classList.remove("is-dragging-shot");
+    }
+    setToast(`镜头顺序已更新（镜头 ${moved.no} 移至第 ${insertIdx + 1} 位）`);
+  }
+
+  function startShotDrag(e: React.DragEvent, id: string) {
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.effectAllowed = "move";
+    setDragId(id);
+    if (typeof document !== "undefined") {
+      document.body.classList.add("is-dragging-shot");
+    }
   }
 
   function reorder(targetId?: string, targetScene?: string) {
@@ -972,8 +1102,9 @@ export default function Home() {
     const [moved] = shots.splice(from, 1);
     if (targetScene !== undefined) moved.scene = targetScene;
     if (targetId) {
-      const targetIndex = shots.findIndex((shot) => shot.id === targetId);
-      shots.splice(targetIndex < 0 ? shots.length : targetIndex, 0, moved);
+      const newTargetIndex = shots.findIndex((shot) => shot.id === targetId);
+      const insertIndex = newTargetIndex < 0 ? shots.length : (from < newTargetIndex ? newTargetIndex + 1 : newTargetIndex);
+      shots.splice(insertIndex, 0, moved);
     } else if (targetScene !== undefined) {
       const lastSceneIndex = shots.reduce((last, shot, index) => shot.scene === targetScene ? index : last, -1);
       shots.splice(lastSceneIndex + 1, 0, moved);
@@ -982,6 +1113,9 @@ export default function Home() {
     }
     updateProject({ shots: shots.map((shot, index) => ({ ...shot, no: index + 1 })) });
     setDragId(""); setDropTargetId(""); setDropPosition(null);
+    if (typeof document !== "undefined") {
+      document.body.classList.remove("is-dragging-shot");
+    }
     setToast(targetScene !== undefined ? `镜头已移至“${targetScene || "未规划镜头"}”` : "镜头顺序已更新");
   }
 
@@ -989,6 +1123,9 @@ export default function Home() {
     setDragId("");
     setDropTargetId("");
     setDropPosition(null);
+    if (typeof document !== "undefined") {
+      document.body.classList.remove("is-dragging-shot");
+    }
   }
 
   function applyImageFile(file: File, shotId: string, successText = "图片已添加") {
@@ -1085,6 +1222,222 @@ export default function Home() {
       setExporting(false);
     }
   }
+
+  const renderTemplateModals = () => (
+    <>
+      {showTemplatesLibraryModal && (
+        <div
+          className="template-lib-overlay"
+          onClick={() => {
+            setShowTemplatesLibraryModal(false);
+            setTemplateMenuId(null);
+          }}
+        >
+          <section className="template-lib-dialog" onClick={(e) => e.stopPropagation()}>
+            <header className="template-lib-header">
+              <h2>模板库</h2>
+              <button
+                type="button"
+                className="template-lib-close"
+                onClick={() => setShowTemplatesLibraryModal(false)}
+                title="关闭"
+              >
+                <X weight="bold" size={20} />
+              </button>
+            </header>
+            <div className="template-cards-row">
+              {[...builtinTemplates, ...(workspace.columnTemplates || [])].map((tmpl) => {
+                const isSelected = selectedTemplateId === tmpl.id;
+                const isBuiltin = builtinTemplates.some((b) => b.id === tmpl.id);
+                const colNames = ["镜号", ...tmpl.columns.filter((c) => c.visible).map((c) => c.label)];
+                return (
+                  <article
+                    key={tmpl.id}
+                    className={`template-card ${isSelected ? "is-selected" : ""}`}
+                    onClick={() => {
+                      setSelectedTemplateId(tmpl.id);
+                      setTemplateMenuId(null);
+                    }}
+                  >
+                    <header className="tmpl-card-header">
+                      <div className="tmpl-title-wrap">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="4" width="7" height="16" rx="1.5" />
+                          <rect x="14" y="4" width="7" height="16" rx="1.5" />
+                        </svg>
+                        <span className="tmpl-card-name" title={tmpl.name}>{tmpl.name}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="tmpl-menu-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTemplateMenuId(templateMenuId === tmpl.id ? null : tmpl.id);
+                        }}
+                        title="更多操作"
+                      >
+                        <DotsThree weight="bold" size={18} />
+                      </button>
+                    </header>
+
+                    {templateMenuId === tmpl.id && (
+                      <div className="tmpl-card-menu-popover" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTemplateMenuId(null);
+                            applyColumnTemplateObj(tmpl);
+                          }}
+                        >
+                          <Check size={14} /> 设为当前模板
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateTemplate(tmpl)}
+                        >
+                          <Copy size={14} /> 复制模板
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTemplateMenuId(null);
+                            setEditingTemplate({ ...tmpl, columns: tmpl.columns.map((c) => ({ ...c })) });
+                          }}
+                        >
+                          <PencilSimple size={14} /> 编辑列设置
+                        </button>
+                        {!isBuiltin && (
+                          <button
+                            type="button"
+                            className="danger"
+                            onClick={() => handleDeleteTemplate(tmpl.id, tmpl.name)}
+                          >
+                            <Trash size={14} /> 删除模板
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="tmpl-columns-box">
+                      {colNames.map((cName, idx) => (
+                        <div key={`${tmpl.id}-${cName}-${idx}`} className="tmpl-column-item">
+                          <span className="tmpl-column-dot" />
+                          <span>{cName}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="tmpl-card-footer">
+                      <button
+                        type="button"
+                        className="tmpl-use-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          applyColumnTemplateObj(tmpl);
+                        }}
+                      >
+                        使用
+                      </button>
+                      <button
+                        type="button"
+                        className="tmpl-edit-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingTemplate({ ...tmpl, columns: tmpl.columns.map((c) => ({ ...c })) });
+                        }}
+                      >
+                        编辑
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+
+              <button
+                type="button"
+                className="tmpl-add-card"
+                onClick={() => {
+                  setNewTemplateName(project ? `${project.name}分镜模板` : "新自定义分镜模板");
+                  setShowNewTemplateModal(true);
+                }}
+                title="新建或从当前配置保存为新模板"
+              >
+                <Plus size={28} weight="bold" />
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showNewTemplateModal && (
+        <div className="modal-overlay" onClick={() => setShowNewTemplateModal(false)}>
+          <section className="edit-modal compact-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h2>新建分镜模板</h2>
+              <button onClick={() => setShowNewTemplateModal(false)}><X /></button>
+            </header>
+            <label>
+              模板名称
+              <input
+                value={newTemplateName}
+                onChange={(e) => setNewTemplateName(e.target.value)}
+                placeholder="例如：短视频分镜 / 广告大片"
+                autoFocus
+              />
+            </label>
+            <p style={{ fontSize: "12px", color: "#64748b", margin: "10px 0 16px" }}>
+              将以当前分镜的列配置（共 {visibleColumnSettings.length} 列）创建新模板，并在模板库中持久保存。
+            </p>
+            <div className="modal-actions">
+              <button className="pill-button" onClick={() => setShowNewTemplateModal(false)}>取消</button>
+              <button className="yellow-btn" onClick={handleSaveNewTemplate}>创建模板</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {editingTemplate && (
+        <div className="modal-overlay" onClick={() => setEditingTemplate(null)}>
+          <section className="edit-modal" style={{ maxWidth: "520px" }} onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h2>编辑模板：{editingTemplate.name}</h2>
+              <button onClick={() => setEditingTemplate(null)}><X /></button>
+            </header>
+            <label style={{ margin: "12px 0 16px" }}>
+              模板名称
+              <input
+                value={editingTemplate.name}
+                onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+              />
+            </label>
+            <h4 style={{ fontSize: "13px", fontWeight: "700", marginBottom: "8px", color: "#334155" }}>包含的列</h4>
+            <div style={{ display: "grid", gap: "8px", maxHeight: "280px", overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: "8px", padding: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#64748b" }}>
+                <span className="tmpl-column-dot" /> <span>镜号（固定首列）</span>
+              </div>
+              {editingTemplate.columns.map((c, idx) => (
+                <label key={c.key} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", margin: 0, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={c.visible}
+                    onChange={(e) => {
+                      const next = editingTemplate.columns.map((col, i) => (i === idx ? { ...col, visible: e.target.checked } : col));
+                      setEditingTemplate({ ...editingTemplate, columns: next });
+                    }}
+                  />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="modal-actions" style={{ marginTop: "20px" }}>
+              <button className="pill-button" onClick={() => setEditingTemplate(null)}>取消</button>
+              <button className="yellow-btn" onClick={handleSaveEditedTemplate}>保存模板</button>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
+  );
 
   if (loading) return <main className="loading-page"><div className="flash-logo"><MediaStoryLogo /></div><p>正在打开 MediaStory…</p></main>;
 
@@ -1185,6 +1538,7 @@ export default function Home() {
           if (file) void handleFileImport(file, "new");
         }}
       />
+      {renderTemplateModals()}
     </main>
   );
 
@@ -1290,7 +1644,32 @@ export default function Home() {
               const sellingPoint = shot.sellingPoint || shot.customFields?.["卖点"] || shot.customFields?.["sellingPoint"] || "";
               const props = shot.props || shot.customFields?.["道具"] || shot.customFields?.["props"] || "";
               return (
-                <div className={`print-table-row ${dragId === shot.id ? "is-dragging" : ""} ${dropTargetId === shot.id ? "is-drop-target" : ""}`} draggable onDragStart={() => setDragId(shot.id)} onDragEnd={endShotDrag} onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== shot.id) setDropTargetId(shot.id); }} onDrop={(e) => { e.preventDefault(); reorder(shot.id); }} key={shot.id}>
+                <div
+                  className={`print-table-row ${dragId === shot.id ? "is-dragging" : ""} ${dropTargetId === shot.id ? "is-drop-target" : ""}`}
+                  draggable
+                  onDragStart={(e) => startShotDrag(e, shot.id)}
+                  onDragEnd={endShotDrag}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (dragId && dragId !== shot.id) setDropTargetId(shot.id);
+                  }}
+                  onDragLeave={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    if (e.clientX < rect.left || e.clientX >= rect.right || e.clientY < rect.top || e.clientY >= rect.bottom) {
+                      if (dropTargetId === shot.id) setDropTargetId("");
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const activeDragId = dragId || e.dataTransfer.getData("text/plain");
+                    if (activeDragId && activeDragId !== shot.id) {
+                      reorder(shot.id);
+                    } else {
+                      endShotDrag();
+                    }
+                  }}
+                  key={shot.id}
+                >
                   <b>{shot.no}</b>
                   <div className="print-img-cell">
                     <img src={imageFor(shot)} alt="" />
@@ -1734,7 +2113,13 @@ export default function Home() {
                     }
                   }}
                   onDragLeave={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    if (
+                      e.clientX < rect.left ||
+                      e.clientX >= rect.right ||
+                      e.clientY < rect.top ||
+                      e.clientY >= rect.bottom
+                    ) {
                       if (dropTargetId === shot.id) {
                         setDropTargetId("");
                         setDropPosition(null);
@@ -1743,20 +2128,31 @@ export default function Home() {
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (dragId && dragId !== shot.id) {
-                      reorderShots(dragId, shot.id, dropPosition || "after");
+                    const activeDragId = dragId || e.dataTransfer.getData("text/plain");
+                    if (activeDragId && activeDragId !== shot.id) {
+                      reorderShots(activeDragId, shot.id, dropPosition || "after");
+                    } else {
+                      endShotDrag();
                     }
                   }}
                 >
-                  <div className="drag-col-cell">
+                  <div
+                    className="drag-col-cell"
+                    draggable={!batchMode}
+                    onDragStart={(e) => {
+                      if (batchMode) return;
+                      startShotDrag(e, shot.id);
+                    }}
+                    onDragEnd={endShotDrag}
+                  >
                     <button
+                      type="button"
                       className="drag-button"
                       draggable={!batchMode}
                       onDragStart={(e) => {
+                        e.stopPropagation();
                         if (batchMode) return;
-                        e.dataTransfer.setData("text/plain", shot.id);
-                        e.dataTransfer.effectAllowed = "move";
-                        setDragId(shot.id);
+                        startShotDrag(e, shot.id);
                       }}
                       onDragEnd={endShotDrag}
                       title={batchMode ? "批量编辑模式" : "拖动调整镜头顺序"}
@@ -1959,10 +2355,41 @@ export default function Home() {
           <div className="story-grid">{project.shots.map((shot) => <article
             className={`story-card ${dragId === shot.id ? "is-dragging" : ""} ${dropTargetId === shot.id ? "is-drop-target" : ""}`}
             key={shot.id}
-            onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== shot.id) setDropTargetId(shot.id); }}
-            onDragLeave={() => setDropTargetId((current) => current === shot.id ? "" : current)}
-            onDrop={(e) => { e.preventDefault(); reorder(shot.id); }}
-          ><button className="card-drag-handle" draggable onDragStart={() => setDragId(shot.id)} onDragEnd={endShotDrag} title="拖动调整镜头顺序"><DotsSixVertical /></button><img src={imageFor(shot)} alt="" /><div className="story-tags"><span>{shot.shotSize || "未设置"}</span><span>{shot.duration || 0}s</span></div><h3>{shot.description || "暂无内容"}</h3><footer><span>镜头 {shot.no}</span><button title="编辑镜头" onClick={() => setEditingShot(shot.id)}><PencilSimple /></button></footer></article>)}</div>
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              if (dragId && dragId !== shot.id && dropTargetId !== shot.id) {
+                setDropTargetId(shot.id);
+              }
+            }}
+            onDragLeave={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              if (
+                e.clientX < rect.left ||
+                e.clientX >= rect.right ||
+                e.clientY < rect.top ||
+                e.clientY >= rect.bottom
+              ) {
+                if (dropTargetId === shot.id) setDropTargetId("");
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const activeDragId = dragId || e.dataTransfer.getData("text/plain");
+              if (activeDragId && activeDragId !== shot.id) {
+                reorder(shot.id);
+              } else {
+                endShotDrag();
+              }
+            }}
+          ><button
+              type="button"
+              className="card-drag-handle"
+              draggable
+              onDragStart={(e) => startShotDrag(e, shot.id)}
+              onDragEnd={endShotDrag}
+              title="拖动调整镜头顺序"
+            ><DotsSixVertical /></button><img src={imageFor(shot)} alt="" /><div className="story-tags"><span>{shot.shotSize || "未设置"}</span><span>{shot.duration || 0}s</span></div><h3>{shot.description || "暂无内容"}</h3><footer><span>镜头 {shot.no}</span><button title="编辑镜头" onClick={() => setEditingShot(shot.id)}><PencilSimple /></button></footer></article>)}</div>
         </section>
       )}
 
@@ -1974,15 +2401,64 @@ export default function Home() {
             {sceneGroups.map(([scene, shots]) => <article
               className={`plan-column ${dropTargetId === `scene:${scene}` ? "is-drop-target" : ""}`}
               key={scene}
-              onDragOver={(e) => { e.preventDefault(); if (dragId) setDropTargetId(`scene:${scene}`); }}
-              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTargetId(""); }}
-              onDrop={(e) => { e.preventDefault(); reorder(undefined, scene === "未规划镜头" ? "" : scene); }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dragId && dropTargetId !== `scene:${scene}`) setDropTargetId(`scene:${scene}`);
+              }}
+              onDragLeave={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                if (
+                  e.clientX < rect.left ||
+                  e.clientX >= rect.right ||
+                  e.clientY < rect.top ||
+                  e.clientY >= rect.bottom
+                ) {
+                  if (dropTargetId === `scene:${scene}`) setDropTargetId("");
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                reorder(undefined, scene === "未规划镜头" ? "" : scene);
+              }}
             ><header><div><h2>{scene}</h2><p><Clock /> {project.dueDate} · {shots.reduce((sum, s) => sum + s.duration, 0)} 秒</p></div><span>{shots.length}</span><button title="编辑场景名称"><PencilSimple /></button></header><div className="plan-list">{shots.map((shot) => <div
               className={`plan-shot ${dragId === shot.id ? "is-dragging" : ""} ${dropTargetId === shot.id ? "is-drop-target" : ""}`}
               key={shot.id}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (dragId && dragId !== shot.id) setDropTargetId(shot.id); }}
-              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); reorder(shot.id, scene === "未规划镜头" ? "" : scene); }}
-            ><button className="plan-drag-handle" draggable onDragStart={() => setDragId(shot.id)} onDragEnd={endShotDrag} title="拖动排序或移动到其他场景"><DotsSixVertical /></button><input type="checkbox" checked={shot.status === "已完成"} onChange={(e) => updateShot(shot.id, { status: e.target.checked ? "已完成" : "待拍摄" })} /><img src={imageFor(shot)} alt="" /><div><small>镜头 {shot.no}</small><b>{shot.description || "暂无内容"}</b></div><button className="plan-edit-button" title="编辑镜头" onClick={() => setEditingShot(shot.id)}><PencilSimple /></button></div>)}</div></article>)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "move";
+                if (dragId && dragId !== shot.id && dropTargetId !== shot.id) setDropTargetId(shot.id);
+              }}
+              onDragLeave={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                if (
+                  e.clientX < rect.left ||
+                  e.clientX >= rect.right ||
+                  e.clientY < rect.top ||
+                  e.clientY >= rect.bottom
+                ) {
+                  if (dropTargetId === shot.id) setDropTargetId("");
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const activeDragId = dragId || e.dataTransfer.getData("text/plain");
+                if (activeDragId && activeDragId !== shot.id) {
+                  reorder(shot.id, scene === "未规划镜头" ? "" : scene);
+                } else {
+                  endShotDrag();
+                }
+              }}
+            ><button
+                type="button"
+                className="plan-drag-handle"
+                draggable
+                onDragStart={(e) => startShotDrag(e, shot.id)}
+                onDragEnd={endShotDrag}
+                title="拖动排序或移动到其他场景"
+              ><DotsSixVertical /></button><input type="checkbox" checked={shot.status === "已完成"} onChange={(e) => updateShot(shot.id, { status: e.target.checked ? "已完成" : "待拍摄" })} /><img src={imageFor(shot)} alt="" /><div><small>镜头 {shot.no}</small><b>{shot.description || "暂无内容"}</b></div><button className="plan-edit-button" title="编辑镜头" onClick={() => setEditingShot(shot.id)}><PencilSimple /></button></div>)}</div></article>)}
           </div>
         </section>
       )}
@@ -2349,84 +2825,7 @@ export default function Home() {
           </section>
         </div>
       )}
-      {showTemplatesLibraryModal && (
-        <div className="modal-overlay" onClick={() => setShowTemplatesLibraryModal(false)}>
-          <section className="edit-modal" style={{ maxWidth: "600px" }} onClick={(e) => e.stopPropagation()}>
-            <header>
-              <div>
-                <h2>分镜模板库</h2>
-                <small>管理并查看预设及自定义分镜列模板</small>
-              </div>
-              <button onClick={() => setShowTemplatesLibraryModal(false)}><X /></button>
-            </header>
-            <div style={{ margin: "16px 0", maxHeight: "60vh", overflowY: "auto" }}>
-              <h4 style={{ fontSize: "13px", fontWeight: "700", marginBottom: "10px", color: "#334155" }}>系统预设模板</h4>
-              <div style={{ display: "grid", gap: "10px" }}>
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", background: "#f8fafc" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                    <b>标准 7 列</b>
-                    <span style={{ fontSize: "11px", color: "#64748b" }}>7 列</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>画面 · 景别 · 时长 · 内容 · 备注 · 卖点 · 道具</div>
-                </div>
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", background: "#f8fafc" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                    <b>影视商业 8 列</b>
-                    <span style={{ fontSize: "11px", color: "#64748b" }}>8 列</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>画面 · 景别 · 运镜 · 时长 · 声音/台词 · 画面描述 · 道具 · 备注</div>
-                </div>
-                <div style={{ border: "1px solid #e2e8f0", borderRadius: "8px", padding: "12px", background: "#f8fafc" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                    <b>极简 4 列</b>
-                    <span style={{ fontSize: "11px", color: "#64748b" }}>4 列</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#64748b" }}>画面 · 景别 · 时长 · 内容</div>
-                </div>
-              </div>
-
-              <h4 style={{ fontSize: "13px", fontWeight: "700", margin: "20px 0 10px", color: "#334155" }}>
-                自定义保存模板 ({workspace.columnTemplates?.length || 0})
-              </h4>
-              {(!workspace.columnTemplates || workspace.columnTemplates.length === 0) ? (
-                <p style={{ fontSize: "12px", color: "#94a3b8", fontStyle: "italic" }}>
-                  暂无自定义保存模板。在分镜制作页面右上角“更多操作(...)”或“列设置”中可将当前列配置保存为模板。
-                </p>
-              ) : (
-                <div style={{ display: "grid", gap: "10px" }}>
-                  {workspace.columnTemplates.map((tmpl) => (
-                    <div key={tmpl.id} style={{ border: "1px solid #cbd5e1", borderRadius: "8px", padding: "12px", background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
-                        <b style={{ color: "#0f172a" }}>⭐ {tmpl.name}</b>
-                        <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
-                          {tmpl.columns.filter((c) => c.visible).map((c) => c.label).join(" · ")}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        className="pill-button danger-control"
-                        style={{ fontSize: "11px", padding: "4px 8px" }}
-                        onClick={() => {
-                          if (confirm(`确定删除模板“${tmpl.name}”？`)) {
-                            const updated = (workspace.columnTemplates || []).filter((t) => t.id !== tmpl.id);
-                            void persist({ ...workspace, columnTemplates: updated });
-                            setToast(`已删除模板“${tmpl.name}”`);
-                          }
-                        }}
-                      >
-                        <Trash /> 删除
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="modal-actions">
-              <button className="yellow-btn" onClick={() => setShowTemplatesLibraryModal(false)}>关闭</button>
-            </div>
-          </section>
-        </div>
-      )}
+      {renderTemplateModals()}
       {importModalData && (
         <div className="modal-overlay" onClick={() => setImportModalData(null)}>
           <section className="edit-modal import-modal" onClick={(e) => e.stopPropagation()}>
