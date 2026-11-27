@@ -2,12 +2,13 @@
 
 import {
   ArrowLeft, Bell, CaretDown, CaretUp, Check, CirclesFour, Clock, Copy,
-  DotsSixVertical, DotsThree, DownloadSimple, Eye, EyeSlash, Export, Folder, FolderOpen, GearSix,
+  DotsSixVertical, DotsThree, DownloadSimple, Eye, EyeSlash, Export, FileArrowDown,
+  FilmSlate, Folder, FolderOpen, GearSix,
   ImageSquare, List, MagnifyingGlass, PencilSimple, Play,
   Plus, Rows, ShareNetwork, SlidersHorizontal, SquaresFour, TextT, Trash,
   UploadSimple, UserPlus, UsersThree, X,
 } from "@phosphor-icons/react";
-import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type Shot = {
   id: string; no: number; scene: string; title: string; description: string;
@@ -122,6 +123,15 @@ export default function Home() {
   const [maxColumns, setMaxColumns] = useState(7);
   const [headerColor, setHeaderColor] = useState("#000000");
   const [brandLogo, setBrandLogo] = useState("ulefone");
+  const [newProjectMenu, setNewProjectMenu] = useState(false);
+  const [importModalData, setImportModalData] = useState<{
+    projectName: string;
+    shots: Shot[];
+    columnSettings: ColumnSetting[];
+  } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const excelInputRef = useRef<HTMLInputElement>(null);
+  const projectExcelInputRef = useRef<HTMLInputElement>(null);
 
   const project = workspace.projects.find((p) => p.id === workspace.activeProjectId) ?? workspace.projects[0];
   const projects = workspace.projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.client.toLowerCase().includes(search.toLowerCase()));
@@ -178,7 +188,7 @@ export default function Home() {
     };
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setNewMenu(false); setSettingsMenu(null); setSelectionMenu(false); setSelectedImageId(null);
+        setNewMenu(false); setNewProjectMenu(false); setSettingsMenu(null); setSelectionMenu(false); setSelectedImageId(null); setImportModalData(null);
       }
       if (event.altKey && event.key.toLowerCase() === "n" && screen === "project" && tab === "分镜制作") {
         event.preventDefault(); addShot();
@@ -299,6 +309,116 @@ export default function Home() {
     void persist({ ...workspace, projects: [newProject, ...workspace.projects], activeProjectId: newProject.id });
     setColumnSettings(defaultColumns);
     setScreen("project"); setTab("分镜制作");
+  }
+
+  async function handleFileImport(file: File, target: "new" | "current") {
+    setIsImporting(true);
+    setToast("正在解析分镜表格…");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "x-access-key": accessKey },
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "导入分镜表格失败");
+      }
+      const data = await res.json() as {
+        success: boolean;
+        projectName: string;
+        shots: Shot[];
+        columnSettings: ColumnSetting[];
+      };
+      if (!data.shots || data.shots.length === 0) {
+        throw new Error("表格中未找到分镜镜头数据");
+      }
+
+      if (target === "new" || !project || project.shots.length === 0) {
+        const newProj: Project = {
+          id: uid("project"),
+          name: data.projectName || file.name.replace(/\.[^/.]+$/, ""),
+          client: "ulefone",
+          format: "16:9",
+          dueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+          script: `${data.projectName} 广告分镜`,
+          createdAt: new Date().toISOString(),
+          columnSettings: data.columnSettings?.length ? data.columnSettings : defaultColumns,
+          shots: data.shots,
+        };
+        const nextProjects = [newProj, ...workspace.projects];
+        await persist({ ...workspace, projects: nextProjects, activeProjectId: newProj.id });
+        setColumnSettings(newProj.columnSettings || defaultColumns);
+        setScreen("project");
+        setTab("分镜制作");
+        setToast(`已成功导入项目 “${newProj.name}”（共 ${newProj.shots.length} 个镜头）`);
+      } else {
+        setImportModalData(data);
+      }
+    } catch (err: any) {
+      alert(err.message || "导入分镜表格失败");
+    } finally {
+      setIsImporting(false);
+      if (excelInputRef.current) excelInputRef.current.value = "";
+      if (projectExcelInputRef.current) projectExcelInputRef.current.value = "";
+    }
+  }
+
+  function handleAppendImportedShots() {
+    if (!importModalData || !project) return;
+    const currentCount = project.shots.length;
+    const renumberedShots = importModalData.shots.map((shot, idx) => ({
+      ...shot,
+      id: uid("shot"),
+      no: currentCount + idx + 1,
+    }));
+    const updatedShots = [...project.shots, ...renumberedShots];
+    updateProject({ shots: updatedShots });
+    setToast(`已成功追加 ${renumberedShots.length} 个镜头`);
+    setImportModalData(null);
+  }
+
+  function handleReplaceProjectShots() {
+    if (!importModalData || !project) return;
+    updateProject({
+      shots: importModalData.shots,
+      columnSettings: importModalData.columnSettings?.length ? importModalData.columnSettings : columnSettings,
+    });
+    if (importModalData.columnSettings?.length) {
+      setColumnSettings(importModalData.columnSettings);
+    }
+    setToast(`已更新当前分镜，共 ${importModalData.shots.length} 个镜头`);
+    setImportModalData(null);
+  }
+
+  function handleCreateAsNewFromModal() {
+    if (!importModalData) return;
+    const newProj: Project = {
+      id: uid("project"),
+      name: importModalData.projectName || "新导入分镜项目",
+      client: "ulefone",
+      format: "16:9",
+      dueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      script: `${importModalData.projectName} 广告分镜`,
+      createdAt: new Date().toISOString(),
+      columnSettings: importModalData.columnSettings?.length ? importModalData.columnSettings : defaultColumns,
+      shots: importModalData.shots,
+    };
+    const nextProjects = [newProj, ...workspace.projects];
+    void persist({ ...workspace, projects: nextProjects, activeProjectId: newProj.id });
+    setColumnSettings(newProj.columnSettings || defaultColumns);
+    setScreen("project");
+    setTab("分镜制作");
+    setToast(`已作为新项目导入 “${newProj.name}”（共 ${newProj.shots.length} 个镜头）`);
+    setImportModalData(null);
+  }
+
+  function handleCreateGroup() {
+    const name = prompt("请输入新建项目组名称", "广告分镜组");
+    if (!name?.trim()) return;
+    setToast(`已创建项目组 “${name.trim()}”`);
   }
 
   function deleteProject(id: string) {
@@ -536,7 +656,26 @@ export default function Home() {
           </div>
         </header>
         <div className="project-grid">
-          <button className="new-project" onClick={addProject}><div><Plus /></div><b>创建新项目</b><span>从空白项目开始</span></button>
+          <article className="folder-card new-project-card">
+            <button className="new-project" onClick={() => setNewProjectMenu(!newProjectMenu)}>
+              <div><Plus /></div>
+              <b>创建新项目 / ...</b>
+              <span>从空白或表格导入</span>
+            </button>
+            {newProjectMenu && (
+              <div className="mini-menu create-project-menu" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => { setNewProjectMenu(false); addProject(); }}>
+                  <FilmSlate weight="bold" /> 创建项目
+                </button>
+                <button onClick={() => { setNewProjectMenu(false); handleCreateGroup(); }}>
+                  <Folder weight="bold" /> 创建组
+                </button>
+                <button onClick={() => { setNewProjectMenu(false); excelInputRef.current?.click(); }}>
+                  <FileArrowDown weight="bold" /> 导入Excel
+                </button>
+              </div>
+            )}
+          </article>
           {projects.map((item) => (
             <article className="folder-card" key={item.id}>
               <button className="folder-open" onClick={() => openProject(item.id)}>
@@ -563,6 +702,16 @@ export default function Home() {
           <div className="modal-actions"><button className="pill-button" onClick={() => setEditingProject(null)}>取消</button><button className="yellow-btn" onClick={() => { void persist({ ...workspace, projects: workspace.projects.map((p) => p.id === editingProject.id ? editingProject : p) }); setEditingProject(null); }}>确认</button></div>
         </section>
       </div>}
+      <input
+        ref={excelInputRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleFileImport(file, "new");
+        }}
+      />
     </main>
   );
 
@@ -711,6 +860,10 @@ export default function Home() {
                     <button onClick={() => addShots(1)}><Plus /> 创建分镜</button>
                     <button onClick={() => addShots(5)}><Plus /> 创建5个分镜</button>
                     <button onClick={() => addShots(10)}><Plus /> 创建10个分镜</button>
+                    <div className="popover-divider" />
+                    <button onClick={() => { setNewMenu(false); projectExcelInputRef.current?.click(); }}>
+                      <FileArrowDown /> 导入Excel表格
+                    </button>
                   </div>
                 )}
               </div>
@@ -718,6 +871,9 @@ export default function Home() {
             </div>
             <div>
               <span className="save-indicator"><Check weight="bold" /> {saveState}</span>
+              <button className="pill-button" onClick={() => projectExcelInputRef.current?.click()} title="导入 Excel (.xlsx) 或 CSV 表格">
+                <FileArrowDown /> 导入Excel
+              </button>
               <button className={batchMode ? "pill-button active-control" : "pill-button"} onClick={() => { setBatchMode(!batchMode); setSelectedShotIds([]); }}>
                 <Rows /> 批量模式
               </button>
@@ -1212,6 +1368,49 @@ export default function Home() {
           </section>
         </div>
       )}
+      {importModalData && (
+        <div className="modal-overlay" onClick={() => setImportModalData(null)}>
+          <section className="edit-modal import-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>导入分镜表格</h2>
+                <small>已解析：“{importModalData.projectName}”（共 {importModalData.shots.length} 个镜头）</small>
+              </div>
+              <button onClick={() => setImportModalData(null)}><X /></button>
+            </header>
+            <p style={{ fontSize: "12px", marginBottom: "14px", color: "#64748b" }}>
+              当前分镜已有 {project.shots.length} 个镜头，请选择导入方式：
+            </p>
+            <div className="import-choices">
+              <button className="import-choice-btn" onClick={handleAppendImportedShots}>
+                <b>追加到当前分镜末尾</b>
+                <span>保留现有镜头，将新导入的 {importModalData.shots.length} 个镜头顺延排在后面（自动重新连续编排镜号）</span>
+              </button>
+              <button className="import-choice-btn" onClick={handleReplaceProjectShots}>
+                <b>覆盖当前分镜镜头</b>
+                <span>清空当前分镜的镜头，完全替换为导入的 {importModalData.shots.length} 个镜头与列设置</span>
+              </button>
+              <button className="import-choice-btn" onClick={handleCreateAsNewFromModal}>
+                <b>创建为全新独立项目</b>
+                <span>保留当前项目不变，在项目列表中新建并打开“{importModalData.projectName}”</span>
+              </button>
+            </div>
+            <div className="modal-actions">
+              <button className="pill-button" onClick={() => setImportModalData(null)}>取消</button>
+            </div>
+          </section>
+        </div>
+      )}
+      <input
+        ref={projectExcelInputRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleFileImport(file, "current");
+        }}
+      />
       {toast && <div className="toast"><Check /> {toast}</div>}
     </main>
   );
