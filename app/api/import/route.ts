@@ -101,6 +101,25 @@ function decodeText(buffer: Buffer): string {
   }
 }
 
+function cellToText(val: any): string {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "string") return val.trim();
+  if (typeof val === "number" || typeof val === "boolean") return String(val).trim();
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  if (typeof val === "object") {
+    if (Array.isArray(val.richText)) {
+      return val.richText.map((item: any) => item?.text || "").join("").trim();
+    }
+    if (val.result !== undefined) {
+      return cellToText(val.result);
+    }
+    if (val.text !== undefined) {
+      return cellToText(val.text);
+    }
+  }
+  return String(val || "").trim();
+}
+
 function extractRowsAndImagesFromExcel(buffer: Buffer) {
   const wb = new ExcelJS.Workbook();
   return wb.xlsx.load(buffer as unknown as ExcelJS.Buffer).then(() => {
@@ -112,8 +131,13 @@ function extractRowsAndImagesFromExcel(buffer: Buffer) {
       while (rawRows.length < rowNumber - 1) {
         rawRows.push([]);
       }
-      const vals = Array.isArray(row.values) ? row.values.slice(1) : [];
-      rawRows.push(vals.map((v) => (v !== null && v !== undefined ? String(v).trim() : "")));
+      const rowArr: string[] = [];
+      const colCount = Math.max(sheet.columnCount || 0, Array.isArray(row.values) ? row.values.length : 0);
+      for (let c = 1; c <= colCount; c++) {
+        const cell = row.getCell(c);
+        rowArr.push(cellToText(cell.value));
+      }
+      rawRows.push(rowArr);
     });
 
     const rowImages = new Map<number, string>();
@@ -161,6 +185,7 @@ function processRawRows(rawRows: string[][], rowImages: Map<number, string>, fil
     const row = rawRows[r] || [];
     let score = 0;
     for (const cell of row) {
+      if (!cell || typeof cell !== "string") continue;
       if (standardKeywords.some((kw) => cell.includes(kw))) {
         score++;
       }
@@ -178,7 +203,7 @@ function processRawRows(rawRows: string[][], rowImages: Map<number, string>, fil
   let projectName = "";
   for (let r = 0; r < headerRowIndex; r++) {
     const row = rawRows[r] || [];
-    const firstNonEmpty = row.find((c) => c.trim().length > 0);
+    const firstNonEmpty = row.find((c) => c && typeof c === "string" && c.trim().length > 0);
     if (firstNonEmpty) {
       projectName = firstNonEmpty.trim();
       break;
@@ -368,8 +393,9 @@ export async function POST(request: NextRequest) {
       columnSettings,
       shots,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Import error:", error);
-    return NextResponse.json({ error: "解析分镜文件失败，请检查文件格式是否为 Excel (.xlsx) 或 CSV 表格" }, { status: 500 });
+    const msg = error?.message ? `解析分镜文件失败: ${error.message}` : "解析分镜文件失败，请检查文件格式是否为 Excel (.xlsx) 或 CSV 表格";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

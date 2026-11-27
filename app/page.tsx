@@ -59,6 +59,51 @@ function MediaStoryLogo({ className = "", dotColor = "#FFBE18" }: { className?: 
   );
 }
 
+function StoryboardFolderVisual({ count }: { count: number }) {
+  return (
+    <div className="folder-visual-wrap">
+      <svg width="140" height="98" viewBox="0 0 140 98" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="folderBackGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FFBA18"/>
+            <stop offset="100%" stopColor="#EAA000"/>
+          </linearGradient>
+          <linearGradient id="folderFrontGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#FFE075"/>
+            <stop offset="100%" stopColor="#FFB814"/>
+          </linearGradient>
+          <filter id="fShadow" x="-10%" y="-10%" width="120%" height="130%">
+            <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#D97706" floodOpacity="0.28"/>
+          </filter>
+          <filter id="pShadow" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#000000" floodOpacity="0.08"/>
+          </filter>
+        </defs>
+
+        <path d="M 6 16 C 6 10, 10 6, 17 6 L 44 6 C 49 6, 53 9, 56 13 L 61 19 L 122 19 C 128 19, 133 23, 133 30 L 133 84 C 133 90, 128 94, 122 94 L 17 94 C 10 94, 6 90, 6 84 Z" fill="url(#folderBackGrad)" />
+        <rect x="14" y="14" width="112" height="68" rx="6" fill="#FFFFFF" filter="url(#pShadow)" stroke="#F1F5F9" strokeWidth="1"/>
+        <rect x="6" y="30" width="128" height="64" rx="10" fill="url(#folderFrontGrad)" filter="url(#fShadow)" />
+        <rect x="16" y="40" width="108" height="44" rx="6" fill="#FFFFFF" fillOpacity="0.88" />
+      </svg>
+      {count > 0 && <span className="folder-count-pill">{count}</span>}
+    </div>
+  );
+}
+
+function formatProjectDate(isoStr?: string) {
+  if (!isoStr) return "刚刚";
+  try {
+    const d = new Date(isoStr);
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `创建 ${m}-${day} ${h}:${min}`;
+  } catch {
+    return "刚刚";
+  }
+}
+
 export const standard7Columns: ColumnSetting[] = [
   { key: "image", label: "画面", width: 180, visible: true },
   { key: "shotSize", label: "景别", width: 80, visible: true },
@@ -865,7 +910,7 @@ export default function Home() {
       duration: 0, dialogue: "", status: "待拍摄", color: "#e8eceb", note: "", image: "", customFields: {},
     };
     const shots = [...project.shots];
-    const index = afterId ? shots.findIndex((s) => s.id === afterId) + 1 : shots.length;
+    const index = afterId === "before-first" ? 0 : afterId ? shots.findIndex((s) => s.id === afterId) + 1 : shots.length;
     shots.splice(index, 0, shot);
     updateProject({ shots: shots.map((s, i) => ({ ...s, no: i + 1 })) });
     setEditingShot(shot.id);
@@ -1107,9 +1152,9 @@ export default function Home() {
           {projects.map((item) => (
             <article className="folder-card" key={item.id}>
               <button className="folder-open" onClick={() => openProject(item.id)}>
-                <div className="folder-visual"><Folder weight="fill" /><span>{item.shots.length}</span></div>
-                <h3>{item.name}</h3><p>{item.client || "未设置客户"}</p>
-                <small>更新 {item.createdAt ? new Date(item.createdAt).toLocaleDateString("zh-CN") : "刚刚"}</small>
+                <StoryboardFolderVisual count={item.shots.length} />
+                <h3>{item.name}</h3>
+                <small>{formatProjectDate(item.createdAt)}</small>
               </button>
               <button className="card-menu" onClick={() => setProjectMenu(projectMenu === item.id ? null : item.id)}><DotsThree weight="bold" /></button>
               {projectMenu === item.id && <div className="mini-menu project-card-menu">
@@ -1654,10 +1699,24 @@ export default function Home() {
                 )}
               </div>
             </div>
-            {project.shots.map((shot) => (
+            {project.shots.length > 0 && (
+              <div className="table-top-insert-line">
+                <button
+                  type="button"
+                  className="insert-shot insert-shot-top"
+                  title="在最前面插入新镜头"
+                  onClick={() => addShot("before-first")}
+                >
+                  <Plus weight="bold" />
+                </button>
+              </div>
+            )}
+            {project.shots.map((shot, shotIdx) => (
               <div className="table-wrap" key={shot.id}>
                 <article
-                  className={`shot-row ${dragId === shot.id ? "is-dragging" : ""} ${
+                  className={`shot-row ${shotIdx % 2 === 0 ? "row-even" : "row-odd"} ${
+                    selectedShotIds.includes(shot.id) ? "is-selected" : ""
+                  } ${dragId === shot.id ? "is-dragging" : ""} ${
                     dropTargetId === shot.id ? (dropPosition === "before" ? "is-drop-before" : "is-drop-after") : ""
                   }`}
                   style={{ gridTemplateColumns: tableTemplate }}
@@ -1708,7 +1767,7 @@ export default function Home() {
                   <div className="check-col-cell">
                     <button
                       type="button"
-                      className="row-select-btn"
+                      className={`row-select-btn ${selectedShotIds.includes(shot.id) ? "is-active" : ""}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleSelectShot(shot.id);
