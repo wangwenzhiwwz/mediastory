@@ -1,0 +1,17 @@
+services:
+  mediastory:
+    build: .
+    container_name: mediastory
+    restart: unless-stopped
+    ports:
+      - "676:676"
+    environment:
+      PORT: "676"
+      HOSTNAME: "0.0.0.0"
+      DATA_DIR: "/app/data"
+      ACCESS_KEY: "${ACCESS_KEY:-mediastory}"
+    volumes:
+      - mediastory_data:/app/data
+
+volumes:
+  mediastory_data:

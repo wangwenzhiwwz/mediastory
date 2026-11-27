@@ -1,0 +1,39 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# misc
+.DS_Store
+*.pem
+*.log
+*.tar.gz
+
+# env files
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+!.env.example
+
+# local scripts & server credentials
+download_*.js
+exec_*.js
+sync_*.js
+echo_pass.bat
+server_*.tar.gz
+*.tsbuildinfo
+
+# temporary output
+next-env.d.ts
+/dist/
+/outputs/
+/work/
