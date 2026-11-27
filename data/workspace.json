@@ -54,7 +54,7 @@
           "scene": "产品展示",
           "title": "爆炸图",
           "description": "3D渲染展示手机顶部激光测距模块分解爆炸图",
-          "shotSize": "特写",
+          "shotSize": "",
           "movement": "",
           "duration": 2,
           "dialogue": "",
@@ -297,7 +297,7 @@
       ]
     }
   ],
-  "updatedAt": "2026-11-27T02:02:03.199Z",
+  "updatedAt": "2026-11-27T02:22:51.404Z",
   "columnTemplates": [
     {
       "id": "template-1795744923134-sg3o8",

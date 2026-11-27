@@ -142,6 +142,12 @@ export default function Home() {
   const [storyboardSettingsMenu, setStoryboardSettingsMenu] = useState(false);
   const [history, setHistory] = useState<Array<{ shots: Shot[]; columnSettings: ColumnSetting[] }>>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [lastActiveCell, setLastActiveCell] = useState<{ shotId: string; colKey: string } | null>(null);
+  const [showBatchInputModal, setShowBatchInputModal] = useState(false);
+  const [batchInputValue, setBatchInputValue] = useState("");
+  const [showBatchPasteModal, setShowBatchPasteModal] = useState(false);
+  const [batchPasteValue, setBatchPasteValue] = useState("");
 
   const project = workspace.projects.find((p) => p.id === workspace.activeProjectId) ?? workspace.projects[0];
   const projects = workspace.projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.client.toLowerCase().includes(search.toLowerCase()));
@@ -201,8 +207,40 @@ export default function Home() {
         setNewMenu(false); setNewProjectMenu(false); setSettingsMenu(null); setSelectionMenu(false); setSelectedImageId(null); setImportModalData(null);
         setActiveColMenu(null); setShowAddColPopover(false); setTopMoreMenu(false); setStoryboardSettingsMenu(false); setEditingCol(null);
       }
+      if (event.key === "Escape") {
+        if (batchMode) {
+          event.preventDefault();
+          setBatchMode(false);
+          setSelectedCells(new Set());
+          setToast("已退出批量编辑模式");
+          return;
+        }
+      }
       if (event.altKey && event.key.toLowerCase() === "n" && screen === "project" && tab === "分镜制作") {
         event.preventDefault(); addShot();
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        const target = event.target as HTMLElement | null;
+        const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
+        if (!isInput && batchMode && selectedCells.size > 0) {
+          event.preventDefault();
+          handleBatchClear();
+        }
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        const target = event.target as HTMLElement | null;
+        const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
+        if (!isInput && batchMode && project) {
+          event.preventDefault();
+          const all = new Set<string>();
+          project.shots.forEach((s) => {
+            visibleColumnSettings.forEach((col) => {
+              all.add(`${s.id}:::${col.key}`);
+            });
+          });
+          setSelectedCells(all);
+          setToast(`已全选 ${all.size} 个单元格`);
+        }
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         const target = event.target as HTMLElement | null;
@@ -380,6 +418,175 @@ export default function Home() {
   function updateShot(id: string, patch: Partial<Shot>) {
     if (!project) return;
     updateProject({ shots: project.shots.map((shot) => shot.id === id ? { ...shot, ...patch } : shot) });
+  }
+
+  function getCellValue(shot: Shot, colKey: string): string {
+    if (colKey === "image") return shot.image || "";
+    if (colKey === "shotSize") return shot.shotSize || "";
+    if (colKey === "duration") return shot.duration ? String(shot.duration) : "";
+    if (colKey === "content") return shot.description || "";
+    if (colKey === "note") return shot.note || "";
+    if (colKey === "sellingPoint") return shot.sellingPoint ?? shot.customFields?.["卖点"] ?? shot.customFields?.["sellingPoint"] ?? "";
+    return shot.customFields?.[colKey] || "";
+  }
+
+  function applyValueToShot(shot: Shot, colKey: string, value: string): Shot {
+    if (colKey === "shotSize") return { ...shot, shotSize: value };
+    if (colKey === "duration") return { ...shot, duration: Number(value) || 0 };
+    if (colKey === "content") return { ...shot, description: value };
+    if (colKey === "note") return { ...shot, note: value };
+    if (colKey === "sellingPoint") {
+      return {
+        ...shot,
+        sellingPoint: value,
+        customFields: { ...(shot.customFields || {}), sellingPoint: value, 卖点: value },
+      };
+    }
+    if (colKey === "image") return { ...shot, image: value };
+    return {
+      ...shot,
+      customFields: { ...(shot.customFields || {}), [colKey]: value },
+    };
+  }
+
+  function handleCellClick(shotId: string, colKey: string, e: React.MouseEvent) {
+    const cellKey = `${shotId}:::${colKey}`;
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedCells((prev) => {
+        const next = new Set(prev);
+        if (next.has(cellKey)) next.delete(cellKey);
+        else next.add(cellKey);
+        return next;
+      });
+      setLastActiveCell({ shotId, colKey });
+    } else if (e.shiftKey && lastActiveCell && project) {
+      const fromRow = project.shots.findIndex((s) => s.id === lastActiveCell.shotId);
+      const toRow = project.shots.findIndex((s) => s.id === shotId);
+      const fromCol = visibleColumnSettings.findIndex((c) => c.key === lastActiveCell.colKey);
+      const toCol = visibleColumnSettings.findIndex((c) => c.key === colKey);
+
+      if (fromRow !== -1 && toRow !== -1 && fromCol !== -1 && toCol !== -1) {
+        const minRow = Math.min(fromRow, toRow);
+        const maxRow = Math.max(fromRow, toRow);
+        const minCol = Math.min(fromCol, toCol);
+        const maxCol = Math.max(fromCol, toCol);
+
+        const next = new Set(selectedCells);
+        for (let r = minRow; r <= maxRow; r++) {
+          const s = project.shots[r];
+          if (!s) continue;
+          for (let c = minCol; c <= maxCol; c++) {
+            const col = visibleColumnSettings[c];
+            if (!col) continue;
+            next.add(`${s.id}:::${col.key}`);
+          }
+        }
+        setSelectedCells(next);
+      }
+    } else {
+      setSelectedCells(new Set([cellKey]));
+      setLastActiveCell({ shotId, colKey });
+    }
+  }
+
+  function applyBatchInput(val: string) {
+    if (!project || selectedCells.size === 0) return;
+    const nextShots = project.shots.map((shot) => {
+      let updatedShot = { ...shot };
+      for (const cellKey of selectedCells) {
+        const [sId, colKey] = cellKey.split(":::");
+        if (sId === shot.id) {
+          updatedShot = applyValueToShot(updatedShot, colKey, val);
+        }
+      }
+      return updatedShot;
+    });
+    updateProject({ shots: nextShots });
+    setToast(`已批量更新 ${selectedCells.size} 个单元格`);
+    setShowBatchInputModal(false);
+  }
+
+  async function handleBatchPaste() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        setShowBatchPasteModal(true);
+        return;
+      }
+      applyPastedText(text);
+    } catch {
+      setShowBatchPasteModal(true);
+    }
+  }
+
+  function applyPastedText(rawText: string) {
+    if (!project) return;
+    const lines = rawText.split(/\r?\n/).map((l) => l.split("\t")).filter((row) => row.some((c) => c.trim()));
+    if (lines.length === 0) return;
+
+    if (lines.length === 1 && lines[0].length === 1) {
+      applyBatchInput(lines[0][0]);
+      return;
+    }
+
+    const cellsArray = Array.from(selectedCells).map((k) => {
+      const [shotId, colKey] = k.split(":::");
+      const rowIdx = project.shots.findIndex((s) => s.id === shotId);
+      const colIdx = visibleColumnSettings.findIndex((c) => c.key === colKey);
+      return { shotId, colKey, rowIdx, colIdx };
+    }).sort((a, b) => a.rowIdx !== b.rowIdx ? a.rowIdx - b.rowIdx : a.colIdx - b.colIdx);
+
+    if (cellsArray.length === 1) {
+      const startRow = cellsArray[0].rowIdx;
+      const startCol = cellsArray[0].colIdx;
+      let updatedShots = [...project.shots];
+      let appliedCount = 0;
+      lines.forEach((rowVals, rOffset) => {
+        const targetRow = startRow + rOffset;
+        if (targetRow < updatedShots.length) {
+          rowVals.forEach((val, cOffset) => {
+            const targetCol = startCol + cOffset;
+            if (targetCol < visibleColumnSettings.length) {
+              const colKey = visibleColumnSettings[targetCol].key;
+              updatedShots[targetRow] = applyValueToShot(updatedShots[targetRow], colKey, val);
+              appliedCount++;
+            }
+          });
+        }
+      });
+      updateProject({ shots: updatedShots });
+      setToast(`已成功粘贴 ${appliedCount} 个单元格数据`);
+      setShowBatchPasteModal(false);
+      return;
+    }
+
+    let flatValues = lines.flat();
+    let updatedShots = [...project.shots];
+    cellsArray.forEach((cell, idx) => {
+      const val = flatValues[idx % flatValues.length];
+      if (cell.rowIdx >= 0) {
+        updatedShots[cell.rowIdx] = applyValueToShot(updatedShots[cell.rowIdx], cell.colKey, val);
+      }
+    });
+    updateProject({ shots: updatedShots });
+    setToast(`已成功批量粘贴到 ${cellsArray.length} 个单元格`);
+    setShowBatchPasteModal(false);
+  }
+
+  function handleBatchClear() {
+    if (!project || selectedCells.size === 0) return;
+    const nextShots = project.shots.map((shot) => {
+      let updatedShot = { ...shot };
+      for (const cellKey of selectedCells) {
+        const [sId, colKey] = cellKey.split(":::");
+        if (sId === shot.id) {
+          updatedShot = applyValueToShot(updatedShot, colKey, colKey === "duration" ? "0" : "");
+        }
+      }
+      return updatedShot;
+    });
+    updateProject({ shots: nextShots });
+    setToast(`已清空 ${selectedCells.size} 个单元格内容`);
   }
 
   function openProject(id: string) {
@@ -997,145 +1204,171 @@ export default function Home() {
         </div>
       </header>
 
+      {batchMode && (
+        <div className="batch-mode-floating-banner">
+          <div className="batch-mode-banner-text">
+            <b>已进入批量编辑模式</b>
+            <span>请查看页面左下角快捷键说明</span>
+          </div>
+          <button
+            type="button"
+            className="batch-mode-exit-btn"
+            onClick={() => {
+              setBatchMode(false);
+              setSelectedCells(new Set());
+            }}
+          >
+            退出
+          </button>
+        </div>
+      )}
+
       {tab === "分镜制作" && (
         <section className="flow-page">
-          <div className="page-toolbar">
-            <div>
-              <h1>制作分镜 <button className="help-dot">?</button></h1>
-              <div className="menu-anchor">
-                <button className="yellow-btn" onClick={() => setNewMenu(!newMenu)}>
-                  <Plus weight="bold" /> 新建 <CaretDown />
-                </button>
-                {newMenu && (
-                  <div className="action-popover new-shot-menu">
-                    <button onClick={() => addShots(1)}><Plus /> 创建分镜</button>
-                    <button onClick={() => addShots(5)}><Plus /> 创建5个分镜</button>
-                    <button onClick={() => addShots(10)}><Plus /> 创建10个分镜</button>
-                    <div className="popover-divider" />
-                    <button onClick={() => { setNewMenu(false); projectExcelInputRef.current?.click(); }}>
-                      <FileArrowDown /> 导入Excel表格
-                    </button>
-                  </div>
-                )}
-              </div>
-              <span className="quick-hint">图片位支持点击上传、拖入或 Ctrl+V 粘贴　Alt+N 新建镜头</span>
+          {batchMode ? (
+            <div className="table-actions-batch">
+              <h2 className="batch-mode-heading">批量编辑模式</h2>
             </div>
-            <div>
-              <span className="save-indicator"><Check weight="bold" /> {saveState}</span>
-              <button className="pill-button" onClick={() => projectExcelInputRef.current?.click()} title="导入 Excel (.xlsx) 或 CSV 表格">
-                <FileArrowDown /> 导入Excel
-              </button>
-              <button className={batchMode ? "pill-button active-control" : "pill-button"} onClick={() => { setBatchMode(!batchMode); setSelectedShotIds([]); }}>
-                <Rows /> 批量模式
-              </button>
-              {batchMode && (
-                <button className="pill-button danger-control" disabled={!selectedShotIds.length} onClick={deleteSelectedShots}>
-                  <Trash /> 删除 {selectedShotIds.length || ""}
-                </button>
-              )}
-              <div className="menu-anchor">
-                <button className="pill-button" onClick={() => { setBatchMode(true); setSelectionMenu(!selectionMenu); }}>
-                  <Check /> 选择 <CaretDown />
-                </button>
-                {selectionMenu && (
-                  <div className="action-popover selection-menu">
-                    <button onClick={() => { setSelectedShotIds(project.shots.map((s) => s.id)); setSelectionMenu(false); }}>全选镜头</button>
-                    <button onClick={() => { setSelectedShotIds(project.shots.filter((s) => s.status === "待拍摄").map((s) => s.id)); setSelectionMenu(false); }}>选择待拍摄</button>
-                    <button onClick={() => { setSelectedShotIds([]); setSelectionMenu(false); }}>取消选择</button>
-                  </div>
-                )}
+          ) : (
+            <div className="page-toolbar">
+              <div>
+                <h1>制作分镜 <button className="help-dot">?</button></h1>
+                <div className="menu-anchor">
+                  <button className="yellow-btn" onClick={() => setNewMenu(!newMenu)}>
+                    <Plus weight="bold" /> 新建 <CaretDown />
+                  </button>
+                  {newMenu && (
+                    <div className="action-popover new-shot-menu">
+                      <button onClick={() => addShots(1)}><Plus /> 创建分镜</button>
+                      <button onClick={() => addShots(5)}><Plus /> 创建5个分镜</button>
+                      <button onClick={() => addShots(10)}><Plus /> 创建10个分镜</button>
+                      <div className="popover-divider" />
+                      <button onClick={() => { setNewMenu(false); projectExcelInputRef.current?.click(); }}>
+                        <FileArrowDown /> 导入Excel表格
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <span className="quick-hint">图片位支持点击上传、拖入或 Ctrl+V 粘贴　Alt+N 新建镜头</span>
               </div>
-              <div className="menu-anchor">
+              <div>
+                <span className="save-indicator"><Check weight="bold" /> {saveState}</span>
+                <button className="pill-button" onClick={() => projectExcelInputRef.current?.click()} title="导入 Excel (.xlsx) 或 CSV 表格">
+                  <FileArrowDown /> 导入Excel
+                </button>
                 <button
                   className="pill-button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setStoryboardSettingsMenu(!storyboardSettingsMenu);
+                  onClick={() => {
+                    setBatchMode(true);
+                    setSelectedCells(new Set());
                   }}
                 >
-                  <SlidersHorizontal /> 分镜设置 <CaretDown />
+                  <Rows /> 批量模式
                 </button>
-                {storyboardSettingsMenu && (
-                  <div className="action-popover storyboard-settings-popover" onClick={(e) => e.stopPropagation()}>
-                    <div className="popover-section-title">分镜画幅比例</div>
-                    <div className="format-pills">
-                      {["16:9", "9:16", "4:3", "2.39:1"].map((fmt) => (
-                        <button
-                          key={fmt}
-                          type="button"
-                          className={project.format === fmt ? "pill-item active" : "pill-item"}
-                          onClick={() => {
-                            updateProject({ format: fmt });
-                            setToast(`已设置画幅为 ${fmt}`);
-                          }}
-                        >
-                          {fmt}
-                        </button>
-                      ))}
+                <div className="menu-anchor">
+                  <button className="pill-button" onClick={() => setSelectionMenu(!selectionMenu)}>
+                    <Check /> 选择 <CaretDown />
+                  </button>
+                  {selectionMenu && (
+                    <div className="action-popover selection-menu">
+                      <button onClick={() => { setSelectedShotIds(project.shots.map((s) => s.id)); setSelectionMenu(false); }}>全选镜头</button>
+                      <button onClick={() => { setSelectedShotIds(project.shots.filter((s) => s.status === "待拍摄").map((s) => s.id)); setSelectionMenu(false); }}>选择待拍摄</button>
+                      <button onClick={() => { setSelectedShotIds([]); setSelectionMenu(false); }}>取消选择</button>
                     </div>
-                    <div className="popover-divider" />
-                    <div className="popover-section-title">套用模板</div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStoryboardSettingsMenu(false);
-                        commitColumns(standard7Columns.map((c) => ({ ...c })));
-                        setToast("已套用 标准7列 模板");
-                      }}
-                    >
-                      标准 7 列
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStoryboardSettingsMenu(false);
-                        commitColumns(movie8Columns.map((c) => ({ ...c })));
-                        setToast("已套用 影视商业8列 模板");
-                      }}
-                    >
-                      影视商业 8 列
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStoryboardSettingsMenu(false);
-                        commitColumns(minimal4Columns.map((c) => ({ ...c })));
-                        setToast("已套用 极简4列 模板");
-                      }}
-                    >
-                      极简 4 列
-                    </button>
-                    {(workspace.columnTemplates || []).map((tmpl) => (
+                  )}
+                </div>
+                <div className="menu-anchor">
+                  <button
+                    className="pill-button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setStoryboardSettingsMenu(!storyboardSettingsMenu);
+                    }}
+                  >
+                    <SlidersHorizontal /> 分镜设置 <CaretDown />
+                  </button>
+                  {storyboardSettingsMenu && (
+                    <div className="action-popover storyboard-settings-popover" onClick={(e) => e.stopPropagation()}>
+                      <div className="popover-section-title">分镜画幅比例</div>
+                      <div className="format-pills">
+                        {["16:9", "9:16", "4:3", "2.39:1"].map((fmt) => (
+                          <button
+                            key={fmt}
+                            type="button"
+                            className={project.format === fmt ? "pill-item active" : "pill-item"}
+                            onClick={() => {
+                              updateProject({ format: fmt });
+                              setToast(`已设置画幅为 ${fmt}`);
+                            }}
+                          >
+                            {fmt}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="popover-divider" />
+                      <div className="popover-section-title">套用模板</div>
                       <button
-                        key={tmpl.id}
                         type="button"
                         onClick={() => {
                           setStoryboardSettingsMenu(false);
-                          applyColumnTemplate(tmpl.id);
-                          setToast(`已套用模板 “${tmpl.name}”`);
+                          commitColumns(standard7Columns.map((c) => ({ ...c })));
+                          setToast("已套用 标准7列 模板");
                         }}
                       >
-                        ⭐ {tmpl.name}
+                        标准 7 列
                       </button>
-                    ))}
-                    <div className="popover-divider" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStoryboardSettingsMenu(false);
-                        saveColumnTemplate();
-                      }}
-                    >
-                      <SquaresFour /> 保存当前列为模板…
-                    </button>
-                  </div>
-                )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoryboardSettingsMenu(false);
+                          commitColumns(movie8Columns.map((c) => ({ ...c })));
+                          setToast("已套用 影视商业8列 模板");
+                        }}
+                      >
+                        影视商业 8 列
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoryboardSettingsMenu(false);
+                          commitColumns(minimal4Columns.map((c) => ({ ...c })));
+                          setToast("已套用 极简4列 模板");
+                        }}
+                      >
+                        极简 4 列
+                      </button>
+                      {(workspace.columnTemplates || []).map((tmpl) => (
+                        <button
+                          key={tmpl.id}
+                          type="button"
+                          onClick={() => {
+                            setStoryboardSettingsMenu(false);
+                            applyColumnTemplate(tmpl.id);
+                            setToast(`已套用模板 “${tmpl.name}”`);
+                          }}
+                        >
+                          ⭐ {tmpl.name}
+                        </button>
+                      ))}
+                      <div className="popover-divider" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoryboardSettingsMenu(false);
+                          saveColumnTemplate();
+                        }}
+                      >
+                        <SquaresFour /> 保存当前列为模板…
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button className="pill-button" onClick={() => setShowColumnModal(true)}>
+                  <Nut weight="bold" /> 列设置
+                </button>
               </div>
-              <button className="pill-button" onClick={() => setShowColumnModal(true)}>
-                <Nut weight="bold" /> 列设置
-              </button>
             </div>
-          </div>
+          )}
           <div className="shot-table">
             <div className="table-head" style={{ gridTemplateColumns: tableTemplate }}>
               <span>排序</span>
@@ -1272,41 +1505,63 @@ export default function Home() {
                     }
                   }}
                 >
-                  {batchMode ? (
-                    <div>
-                      <label className="batch-check">
-                        <input
-                          type="checkbox"
-                          checked={selectedShotIds.includes(shot.id)}
-                          onChange={(e) =>
-                            setSelectedShotIds(
-                              e.target.checked
-                                ? [...selectedShotIds, shot.id]
-                                : selectedShotIds.filter((id) => id !== shot.id)
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div>
-                      <button
-                        className="drag-button"
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/plain", shot.id);
-                          e.dataTransfer.effectAllowed = "move";
-                          setDragId(shot.id);
-                        }}
-                        onDragEnd={endShotDrag}
-                        title="拖动调整镜头顺序"
-                      >
-                        <List weight="bold" />
-                      </button>
-                    </div>
-                  )}
+                  <div>
+                    <button
+                      className="drag-button"
+                      draggable={!batchMode}
+                      onDragStart={(e) => {
+                        if (batchMode) return;
+                        e.dataTransfer.setData("text/plain", shot.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        setDragId(shot.id);
+                      }}
+                      onDragEnd={endShotDrag}
+                      title={batchMode ? "批量编辑模式" : "拖动调整镜头顺序"}
+                    >
+                      <List weight="bold" />
+                    </button>
+                  </div>
                   <b>{shot.no}</b>
                   {visibleColumnSettings.map((column) => {
+                    const cellKey = `${shot.id}:::${column.key}`;
+                    const isCellSelected = selectedCells.has(cellKey);
+
+                    if (batchMode) {
+                      return (
+                        <div
+                          key={column.key}
+                          className={`col-cell-wrap is-batch-cell ${isCellSelected ? "is-selected-cell" : ""}`}
+                          onClick={(e) => handleCellClick(shot.id, column.key, e)}
+                          onDoubleClick={() => {
+                            setSelectedCells(new Set([cellKey]));
+                            setBatchInputValue(getCellValue(shot, column.key));
+                            setShowBatchInputModal(true);
+                          }}
+                        >
+                          <div className="batch-cell-display">
+                            {column.key === "image" ? (
+                              <div className="batch-image-slot">
+                                {shot.image ? (
+                                  <img src={imageFor(shot)} alt="" />
+                                ) : (
+                                  <div className="batch-empty-img">
+                                    <Plus weight="bold" />
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="batch-text-slot">
+                                {getCellValue(shot, column.key) ? (
+                                  <span>{getCellValue(shot, column.key)}</span>
+                                ) : (
+                                  <span className="batch-empty-placeholder">输入{column.label}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
                     if (column.key === "image") {
                       return (
                         <div key={column.key}>
@@ -1436,7 +1691,7 @@ export default function Home() {
             ))}
             {!project.shots.length && <button className="empty-table" onClick={() => addShot()}><Plus weight="bold" /> 添加第一个镜头</button>}
           </div>
-          <div className="table-summary">镜头总数 {project.shots.length}　 总时长 {totalDuration} 秒</div>
+          {!batchMode && <div className="table-summary">镜头总数 {project.shots.length}　 总时长 {totalDuration} 秒</div>}
         </section>
       )}
 
@@ -1946,6 +2201,179 @@ export default function Home() {
             </div>
           </section>
         </div>
+      )}
+      {showBatchInputModal && (
+        <div className="modal-overlay" onClick={() => setShowBatchInputModal(false)}>
+          <section className="edit-modal compact-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>批量输入内容</h2>
+                <small>将内容统一填入已选中的 {selectedCells.size} 个单元格</small>
+              </div>
+              <button onClick={() => setShowBatchInputModal(false)}><X /></button>
+            </header>
+
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 6, display: "block" }}>
+                快捷常用景别：
+              </label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+                {["特写", "近景", "中景", "全景", "大全景"].map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    className="pill-button"
+                    style={{ fontSize: 11.5, padding: "3px 10px" }}
+                    onClick={() => {
+                      applyBatchInput(sz);
+                    }}
+                  >
+                    {sz}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label>
+              统一输入内容
+              <textarea
+                rows={3}
+                value={batchInputValue}
+                onChange={(e) => setBatchInputValue(e.target.value)}
+                placeholder="请输入要填入的文本（如内容、备注、时长等）…"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    applyBatchInput(batchInputValue);
+                  }
+                }}
+              />
+            </label>
+
+            <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button type="button" className="pill-button" onClick={() => setShowBatchInputModal(false)}>取消</button>
+              <button
+                type="button"
+                className="yellow-btn"
+                onClick={() => applyBatchInput(batchInputValue)}
+              >
+                确定应用 ({selectedCells.size})
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {showBatchPasteModal && (
+        <div className="modal-overlay" onClick={() => setShowBatchPasteModal(false)}>
+          <section className="edit-modal compact-modal" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>批量粘贴数据</h2>
+                <small>支持多行或从 Excel 复制的表格数据</small>
+              </div>
+              <button onClick={() => setShowBatchPasteModal(false)}><X /></button>
+            </header>
+            <label style={{ marginTop: 12 }}>
+              粘贴数据区域
+              <textarea
+                rows={5}
+                value={batchPasteValue}
+                onChange={(e) => setBatchPasteValue(e.target.value)}
+                placeholder="请在此按 Ctrl+V 粘贴从 Excel 或记事本复制的数据…"
+                autoFocus
+              />
+            </label>
+            <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button type="button" className="pill-button" onClick={() => setShowBatchPasteModal(false)}>取消</button>
+              <button
+                type="button"
+                className="yellow-btn"
+                disabled={!batchPasteValue.trim()}
+                onClick={() => applyPastedText(batchPasteValue)}
+              >
+                确认填入
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {batchMode && (
+        <>
+          <aside className="batch-actions-dock">
+            <span className="batch-selected-count">
+              已选中{selectedCells.size}个单元格
+            </span>
+            <button
+              type="button"
+              className="batch-dock-btn"
+              disabled={selectedCells.size === 0}
+              onClick={() => {
+                setBatchInputValue("");
+                setShowBatchInputModal(true);
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <rect x="3" y="3" width="18" height="18" rx="3"/>
+                <path d="M7 8h10M12 8v8"/>
+              </svg>
+              批量输入
+            </button>
+            <button
+              type="button"
+              className="batch-dock-btn"
+              disabled={selectedCells.size === 0}
+              onClick={() => void handleBatchPaste()}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                <rect x="8" y="2" width="8" height="4" rx="1"/>
+              </svg>
+              批量粘贴
+            </button>
+            <button
+              type="button"
+              className="batch-dock-btn danger"
+              disabled={selectedCells.size === 0}
+              onClick={handleBatchClear}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/>
+              </svg>
+              清空内容
+            </button>
+            <button
+              type="button"
+              className="batch-dock-btn exit"
+              onClick={() => {
+                setBatchMode(false);
+                setSelectedCells(new Set());
+              }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+              </svg>
+              退出批量编辑
+            </button>
+          </aside>
+
+          <div className="batch-shortcuts-footer">
+            <span className="shortcut-item">
+              <kbd>左键</kbd> 单选单元格
+            </span>
+            <span className="shortcut-item">
+              <kbd>⌘ / Ctrl 左键</kbd> 多选/反选单元格
+            </span>
+            <span className="shortcut-item">
+              <kbd>⇧ 左键</kbd> 范围内选择单元格
+            </span>
+          </div>
+
+          <div className="batch-esc-footer">
+            <kbd>ESC</kbd> 退出批量模式
+          </div>
+        </>
       )}
       <input
         ref={projectExcelInputRef}
