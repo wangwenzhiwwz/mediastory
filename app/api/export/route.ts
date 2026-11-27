@@ -101,17 +101,32 @@ function drawCell(
   height: number,
   options: { align?: "left" | "center" | "right"; size?: number; bold?: boolean; color?: string; padding?: number } = {},
 ) {
-  doc.font(fontPath).fontSize(options.size || 11).fillColor(options.color || "#000000");
-  const pad = options.padding !== undefined ? options.padding : 6;
-  const textOptions = {
-    width: Math.max(0, width - pad * 2),
-    height: Math.max(0, height - pad * 2),
+  if (text === undefined || text === null || text === "") return;
+  const str = String(text);
+  const pad = options.padding !== undefined ? options.padding : 5;
+  const usableWidth = Math.max(10, width - pad * 2);
+  const usableHeight = Math.max(10, height - pad * 2);
+
+  let size = options.size || 10;
+  doc.font(fontPath).fillColor(options.color || "#000000");
+
+  // Dynamically scale down font size if text would overflow cell vertically or horizontally
+  while (size > 6.5) {
+    doc.fontSize(size);
+    const measuredHeight = doc.heightOfString(str, { width: usableWidth, lineGap: 2.5 });
+    if (measuredHeight <= usableHeight) break;
+    size -= 0.5;
+  }
+
+  doc.fontSize(size);
+  const textOptions: PDFKit.Mixins.TextOptions = {
+    width: usableWidth,
     align: options.align || "center",
-    ellipsis: true,
-    lineGap: 3,
-  } as PDFKit.Mixins.TextOptions;
-  const textHeight = Math.min(height - pad * 2, doc.heightOfString(text || "", textOptions));
-  doc.text(text || "", x + pad, y + Math.max(pad, (height - textHeight) / 2), textOptions);
+    lineGap: 2.5,
+  };
+  const actualHeight = doc.heightOfString(str, textOptions);
+  const startY = y + Math.max(pad, (height - actualHeight) / 2);
+  doc.text(str, x + pad, startY, textOptions);
 }
 
 type ExportOptions = {
@@ -129,7 +144,7 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
     font: fontPath,
     size: "A4",
     layout: "landscape",
-    margins: { top: 20, right: 28, bottom: 20, left: 28 },
+    margins: { top: 20, right: 34, bottom: 20, left: 34 },
     info: { Title: `${project.name} - 分镜`, Author: "MediaStory" },
   } as PDFKit.PDFDocumentOptions & { font: string });
   const chunks: Buffer[] = [];
@@ -139,23 +154,24 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
     doc.on("error", reject);
   });
 
-  const fontScale = options?.fontSize === "大" ? 1.2 : options?.fontSize === "小" ? 0.95 : 1.08;
+  const fontScale = options?.fontSize === "大" ? 1.15 : options?.fontSize === "小" ? 0.92 : 1.0;
   const isEightCols = options?.maxColumns === 8;
   const images = await Promise.all(project.shots.map((shot) => imageBuffer(shot.image)));
   const projectRatio = 16 / 9;
 
   // 7 or 8 columns layout: 镜号, 画面, 景别, 时长 (秒), 内容, 备注, 卖点, [道具]
+  // Proportion matches template: 6.5%, 15.5%, 6.4%, 7.2%, 22.3%, 22.2%, 19.9%
   const columns = isEightCols
-    ? [40, 125, 50, 50, 225, 136, 80, 80]
-    : [42, 130, 52, 52, 250, 150, 110];
+    ? [46, 114, 46, 50, 152, 142, 112, 112]
+    : [50, 120, 50, 56, 172, 172, 154];
   const headers = isEightCols
     ? ["镜号", "画面", "景别", "时长 (秒)", "内容", "备注", "卖点", "道具"]
     : ["镜号", "画面", "景别", "时长 (秒)", "内容", "备注", "卖点"];
 
-  const left = 28;
-  const tableWidth = columns.reduce((sum, width) => sum + width, 0);
-  const tableTop = 74;
-  const headerHeight = 28;
+  const left = 34;
+  const tableWidth = columns.reduce((sum, width) => sum + width, 0); // 774 pt
+  const tableTop = 68;
+  const headerHeight = 26;
   const rowHeight = 74;
   const rowsPerPage = 6;
   const brandName = options?.brandLogo || project.client || "ulefone";
@@ -164,20 +180,20 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
   function pageHeader() {
     doc.addPage();
     // Project Name on top-left (bold black, larger)
-    doc.font(fontPath).fillColor("#111111").fontSize(19).text(project.name, left, 22, { lineGap: 0 });
+    doc.font(fontPath).fillColor("#111111").fontSize(20).text(project.name, left, 22, { lineGap: 0 });
     
     // Brand / Client Logo on top-right (yellow/orange italic)
-    doc.fillColor("#F3A600").fontSize(19).text(brandName, 550, 19, {
-      width: 264,
+    doc.fillColor("#F3A600").fontSize(20).text(brandName, left + tableWidth - 280, 19, {
+      width: 280,
       align: "right",
     });
     
     // Meta info on top-right below brand logo
     doc.fillColor("#555555").fontSize(8.5).text(
       `画幅比 ${project.format || "16:9"}  |  总镜头数 ${project.shots.length}个  |  总时长 ${totalDuration(project)}秒`,
-      500,
-      50,
-      { width: 314, align: "right" },
+      left + tableWidth - 360,
+      47,
+      { width: 360, align: "right" },
     );
 
     // Header background (pure black by default)
@@ -185,7 +201,7 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
     let x = left;
     headers.forEach((header, index) => {
       drawCell(doc, header, x, tableTop, columns[index], headerHeight, {
-        size: Math.round(10.5 * fontScale),
+        size: Math.round(10 * fontScale),
         color: "#FFFFFF",
         align: "center",
       });
@@ -195,13 +211,13 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
 
   function footer(pageNumber: number) {
     // Brand on bottom-left
-    doc.font(fontPath).fillColor("#F3A600").fontSize(9).text(brandName, left, 554);
+    doc.font(fontPath).fillColor("#F3A600").fontSize(9.5).text(brandName, left, 556);
     // Project Name · 分镜 · Page on bottom-right
-    doc.fillColor("#555555").fontSize(8).text(
+    doc.fillColor("#555555").fontSize(8.5).text(
       `${project.name} · 分镜 · ${pageNumber}`,
-      610,
-      554,
-      { width: 204, align: "right" },
+      left + tableWidth - 300,
+      556,
+      { width: 300, align: "right" },
     );
   }
 
@@ -243,21 +259,18 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
         ];
 
     values.forEach((value, columnIndex) => {
-      // Crisp gray border
+      // Crisp thin gray border
       doc.rect(x, y, columns[columnIndex], rowHeight).lineWidth(0.6).strokeColor("#B0B5B9").stroke();
       if (columnIndex !== 1) {
-        // Content column is index 4, note is index 5
-        const isLeft = columnIndex === 4 || columnIndex === 5;
         let fontSize = Math.round(10 * fontScale);
-        if (columnIndex === 0) fontSize = Math.round(11.5 * fontScale);
-        if (columnIndex === 4) fontSize = Math.round(10.5 * fontScale);
-        if (columnIndex === 5) fontSize = Math.round(9.5 * fontScale);
+        if (columnIndex === 0) fontSize = Math.round(11 * fontScale);
+        if (columnIndex === 4) fontSize = Math.round(10 * fontScale);
 
         drawCell(doc, value, x, y, columns[columnIndex], rowHeight, {
-          align: isLeft ? "left" : "center",
+          align: "center",
           size: fontSize,
-          color: columnIndex === 5 ? "#262626" : "#000000",
-          padding: isLeft ? 6 : 3,
+          color: "#000000",
+          padding: 5,
         });
       }
       x += columns[columnIndex];
@@ -266,7 +279,7 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
     const image = images[index];
     if (image) {
       try {
-        const box = fitAspect(columns[1] - 10, rowHeight - 10, projectRatio);
+        const box = fitAspect(columns[1] - 8, rowHeight - 8, projectRatio);
         doc.image(image, left + columns[0] + (columns[1] - box.width) / 2, y + (rowHeight - box.height) / 2, {
           cover: [box.width, box.height],
           align: "center",
@@ -276,7 +289,7 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
         drawCell(doc, "图片无法加载", left + columns[0], y, columns[1], rowHeight, { size: 9, color: "#888888" });
       }
     } else {
-      doc.rect(left + columns[0] + 5, y + 5, columns[1] - 10, rowHeight - 10).fill("#F3F4F5");
+      doc.rect(left + columns[0] + 4, y + 4, columns[1] - 8, rowHeight - 8).fill("#F3F4F5");
       drawCell(doc, "未添加图片", left + columns[0], y, columns[1], rowHeight, { size: 9, color: "#999999" });
     }
 
@@ -313,22 +326,22 @@ async function makeExcel(project: ExportProject, exportType = "分镜", options?
   sheet.columns = isEightCols
     ? [
         { key: "no", width: 8 },
-        { key: "image", width: 22 },
-        { key: "shotSize", width: 10 },
-        { key: "duration", width: 12 },
-        { key: "description", width: 38 },
+        { key: "image", width: 20 },
+        { key: "shotSize", width: 9 },
+        { key: "duration", width: 10 },
+        { key: "description", width: 30 },
         { key: "note", width: 28 },
-        { key: "sellingPoint", width: 16 },
-        { key: "props", width: 16 },
+        { key: "sellingPoint", width: 22 },
+        { key: "props", width: 22 },
       ]
     : [
-        { key: "no", width: 8 },
+        { key: "no", width: 9 },
         { key: "image", width: 22 },
         { key: "shotSize", width: 10 },
-        { key: "duration", width: 12 },
-        { key: "description", width: 42 },
-        { key: "note", width: 30 },
-        { key: "sellingPoint", width: 20 },
+        { key: "duration", width: 11 },
+        { key: "description", width: 34 },
+        { key: "note", width: 34 },
+        { key: "sellingPoint", width: 30 },
       ];
 
   const lastColLetter = isEightCols ? "H" : "G";
@@ -393,12 +406,11 @@ async function makeExcel(project: ExportProject, exportType = "分镜", options?
           sellingPoint,
         ];
     row.height = 76;
-    row.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
-      const isLeft = columnNumber === 5 || columnNumber === 6;
-      cell.font = { name: "Noto Sans SC", size: isLeft ? 10.5 : 11, bold: isLeft, color: { argb: "FF000000" } };
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { name: "Noto Sans SC", size: 10.5, color: { argb: "FF000000" } };
       cell.alignment = {
         vertical: "middle",
-        horizontal: isLeft ? "left" : "center",
+        horizontal: "center",
         wrapText: true,
       };
       cell.border = {

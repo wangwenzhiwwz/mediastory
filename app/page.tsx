@@ -1232,11 +1232,13 @@ export default function Home() {
               return (
                 <div className={`print-table-row ${dragId === shot.id ? "is-dragging" : ""} ${dropTargetId === shot.id ? "is-drop-target" : ""}`} draggable onDragStart={() => setDragId(shot.id)} onDragEnd={endShotDrag} onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== shot.id) setDropTargetId(shot.id); }} onDrop={(e) => { e.preventDefault(); reorder(shot.id); }} key={shot.id}>
                   <b>{shot.no}</b>
-                  <img src={imageFor(shot)} alt="" />
+                  <div className="print-img-cell">
+                    <img src={imageFor(shot)} alt="" />
+                  </div>
                   <span>{shot.shotSize || ""}</span>
                   <span>{shot.duration ? shot.duration : ""}</span>
-                  <p className="align-left">{shot.description || ""}</p>
-                  <p className="align-left note-cell">{shot.note || ""}</p>
+                  <p className="print-content-cell">{shot.description || ""}</p>
+                  <p className="print-note-cell">{shot.note || ""}</p>
                   <span>{sellingPoint}</span>
                   {maxColumns === 8 && <span>{props}</span>}
                 </div>
