@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import path from "node:path";
+import fs from "node:fs";
 import PDFDocument from "pdfkit";
 import ExcelJS from "exceljs";
 import sharp from "sharp";
@@ -22,12 +23,28 @@ type ExportShot = {
   customFields?: Record<string, string>;
 };
 
+type ExportCover = {
+  enabled: boolean;
+  template?: "commercial" | "cinematic" | "classic" | "editorial";
+  title?: string;
+  subtitle?: string;
+  client?: string;
+  director?: string;
+  dop?: string;
+  producer?: string;
+  date?: string;
+  version?: string;
+  heroImage?: string;
+  description?: string;
+};
+
 type ExportProject = {
   name: string;
   client?: string;
   format?: string;
   dueDate?: string;
   shots: ExportShot[];
+  cover?: ExportCover;
   notices?: Array<{
     title: string; date: string; firstRoll?: string; location?: string;
     weather?: string; note?: string;
@@ -177,16 +194,108 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
   const brandName = options?.brandLogo || project.client || "ulefone";
   const headerBg = options?.headerColor || "#000000";
 
+  
+async function drawCoverPage(doc: PDFKit.PDFDocument, project: ExportProject, heroBuffer: Buffer | null) {
+  doc.addPage();
+  const cover = project.cover;
+  const t = cover?.template || "commercial";
+  const title = cover?.title || project.name || "未命名脚本";
+  const subtitle = cover?.subtitle || "短视频与广告创意脚本 · 分镜故事板";
+  const client = cover?.client || project.client || "ulefone";
+  const director = cover?.director || "王文志";
+  const dop = cover?.dop || "待定";
+  const producer = cover?.producer || "MediaStory Studio";
+  const date = cover?.date || (project.dueDate || "2026/11/28");
+  const version = cover?.version || "V1.0";
+  const ulefonePath = path.join(process.cwd(), "public", "brands", "ulefone.png");
+  const rugonePath = path.join(process.cwd(), "public", "brands", "rugone.png");
+
+  const drawBrand = (x: number, y: number, w: number, h: number) => {
+    const norm = (client || "").toLowerCase().trim();
+    if (norm === "ulefone" && fs.existsSync(ulefonePath)) {
+      doc.image(ulefonePath, x, y, { fit: [w, h] });
+    } else if (norm === "rugone" && fs.existsSync(rugonePath)) {
+      doc.image(rugonePath, x, y, { fit: [w, h] });
+    } else {
+      doc.font(fontPath).fillColor("#F3A600").fontSize(Math.round(h * 0.8)).text(client, x, y);
+    }
+  };
+
+  if (t === "cinematic") {
+    // Dark background #090D16
+    doc.rect(0, 0, 841.89, 595.28).fill("#090D16");
+    drawBrand(44, 36, 120, 26);
+    doc.font(fontPath).fillColor("#FFCE20").fontSize(10).text("OFFICIAL STORYBOARD", 620, 42, { width: 178, align: "right" });
+
+    // Hero image banner
+    if (heroBuffer) {
+      doc.image(heroBuffer, 44, 85, { width: 754, height: 340, fit: [754, 340], align: "center", valign: "center" });
+      doc.rect(44, 325, 754, 100).fillOpacity(0.85).fill("#090D16").fillOpacity(1);
+    }
+
+    doc.font(fontPath).fillColor("#FFFFFF").fontSize(26).text(title, 64, 345, { width: 714 });
+    doc.fillColor("#CBD5E1").fontSize(12).text(subtitle, 64, 385, { width: 714 });
+
+    // Footer credits
+    doc.rect(44, 465, 754, 1).fill("#232B3E");
+    doc.font(fontPath).fillColor("#94A3B8").fontSize(11).text(`DIRECTOR: `, 44, 485, { continued: true })
+      .fillColor("#FFFFFF").text(`${director}    `, { continued: true })
+      .fillColor("#94A3B8").text(`D.O.P.: `, { continued: true })
+      .fillColor("#FFFFFF").text(`${dop}    `, { continued: true })
+      .fillColor("#94A3B8").text(`PRODUCER: `, { continued: true })
+      .fillColor("#FFFFFF").text(`${producer}`);
+    
+    doc.fillColor("#64748B").fontSize(10).text(`${date} · ${version} · 画幅 ${project.format || "16:9"} · 镜头数 ${project.shots.length}`, 44, 520);
+    return;
+  }
+
+  // Commercial / Classic / Editorial
+  doc.rect(0, 0, 841.89, 595.28).fill("#FFFFFF");
+  drawBrand(44, 36, 120, 26);
+  doc.font(fontPath).fillColor("#64748B").fontSize(9).text("TVC / COMMERCIAL STORYBOARD", 600, 42, { width: 198, align: "right" });
+
+  if (heroBuffer) {
+    doc.image(heroBuffer, 44, 76, { width: 754, height: 320, fit: [754, 320], align: "center", valign: "center" });
+  }
+
+  doc.font(fontPath).fillColor("#0F172A").fontSize(26).text(title, 44, 412, { width: 754 });
+  doc.fillColor("#64748B").fontSize(12).text(subtitle, 44, 448, { width: 754 });
+
+  // 4 metadata columns
+  doc.rect(44, 485, 754, 1).fill("#E2E8F0");
+  const colW = 754 / 4;
+  const meta = [
+    { label: "客户 / 品牌", val: client },
+    { label: "导演", val: director },
+    { label: "摄影指导", val: dop },
+    { label: "日期与版本", val: `${date} · ${version}` },
+  ];
+  meta.forEach((m, idx) => {
+    const x = 44 + idx * colW;
+    doc.font(fontPath).fillColor("#94A3B8").fontSize(9).text(m.label, x, 500);
+    doc.fillColor("#1E293B").fontSize(12).text(m.val, x, 516);
+  });
+}
+
   function pageHeader() {
     doc.addPage();
     // Project Name on top-left (bold black, larger)
     doc.font(fontPath).fillColor("#111111").fontSize(20).text(project.name, left, 22, { lineGap: 0 });
     
-    // Brand / Client Logo on top-right (yellow/orange italic)
-    doc.fillColor("#F3A600").fontSize(20).text(brandName, left + tableWidth - 280, 19, {
-      width: 280,
-      align: "right",
-    });
+    const ulefonePath = path.join(process.cwd(), "public", "brands", "ulefone.png");
+    const rugonePath = path.join(process.cwd(), "public", "brands", "rugone.png");
+    const normBrand = brandName.toLowerCase().trim();
+
+    if (normBrand === "ulefone" && fs.existsSync(ulefonePath)) {
+      doc.image(ulefonePath, left + tableWidth - 110, 19, { fit: [110, 22], align: "right" });
+    } else if (normBrand === "rugone" && fs.existsSync(rugonePath)) {
+      doc.image(rugonePath, left + tableWidth - 110, 19, { fit: [110, 22], align: "right" });
+    } else {
+      doc.fillColor("#F3A600").fontSize(20).text(brandName, left + tableWidth - 280, 19, {
+        width: 280,
+        align: "right",
+      });
+    }
     
     // Meta info on top-right below brand logo
     doc.fillColor("#555555").fontSize(8.5).text(
@@ -210,8 +319,16 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
   }
 
   function footer(pageNumber: number) {
-    // Brand on bottom-left
-    doc.font(fontPath).fillColor("#F3A600").fontSize(9.5).text(brandName, left, 556);
+    const ulefonePath = path.join(process.cwd(), "public", "brands", "ulefone.png");
+    const rugonePath = path.join(process.cwd(), "public", "brands", "rugone.png");
+    const normBrand = brandName.toLowerCase().trim();
+    if (normBrand === "ulefone" && fs.existsSync(ulefonePath)) {
+      doc.image(ulefonePath, left, 554, { fit: [80, 16] });
+    } else if (normBrand === "rugone" && fs.existsSync(rugonePath)) {
+      doc.image(rugonePath, left, 554, { fit: [80, 16] });
+    } else {
+      doc.font(fontPath).fillColor("#F3A600").fontSize(9.5).text(brandName, left, 556);
+    }
     // Project Name · 分镜 · Page on bottom-right
     doc.fillColor("#555555").fontSize(8.5).text(
       `${project.name} · 分镜 · ${pageNumber}`,
@@ -219,6 +336,14 @@ async function makePdf(project: ExportProject, exportType = "分镜", options?: 
       556,
       { width: 300, align: "right" },
     );
+  }
+
+  if (project.cover?.enabled) {
+    let heroImgBuf = images[0] || null;
+    if (project.cover.heroImage && project.cover.heroImage !== project.shots[0]?.image) {
+      heroImgBuf = (await imageBuffer(project.cover.heroImage)) || heroImgBuf;
+    }
+    await drawCoverPage(doc, project, heroImgBuf);
   }
 
   pageHeader();

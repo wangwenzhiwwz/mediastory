@@ -21,10 +21,28 @@ type ColumnSetting = {
   key: string; label: string; width: number; visible: boolean; custom?: boolean;
 };
 type ColumnTemplate = { id: string; name: string; columns: ColumnSetting[] };
+export type CoverTemplateType = "commercial" | "cinematic" | "classic" | "editorial";
+
+export type ProjectCover = {
+  enabled: boolean;
+  template: CoverTemplateType;
+  title?: string;
+  subtitle?: string;
+  client?: string;
+  director?: string;
+  dop?: string;
+  producer?: string;
+  date?: string;
+  version?: string;
+  heroImage?: string;
+  description?: string;
+};
+
 type Project = {
   id: string; name: string; client: string; format: string; dueDate: string;
   script: string; shots: Shot[]; createdAt?: string; notices?: Notice[];
   columnSettings?: ColumnSetting[];
+  cover?: ProjectCover;
 };
 type Notice = {
   id: string; title: string; date: string; firstRoll: string; location: string;
@@ -44,18 +62,204 @@ const fallbackImages = [
 ];
 const flowTabs = ["分镜制作", "故事板", "拍摄计划", "拍摄通告"];
 
-function MediaStoryLogo({ className = "", dotColor = "#FFBE18" }: { className?: string; dotColor?: string }) {
+function MediaStoryLogo({ className = "", size = 38 }: { className?: string; size?: number; dotColor?: string }) {
   return (
-    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className} aria-label="MediaStory Logo">
+    <svg
+      viewBox="0 0 100 100"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-label="MediaStory Logo"
+      style={{ width: `${size}px`, height: `${size}px`, display: "block" }}
+    >
+      <defs>
+        <linearGradient id="msYellowBg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#FFCE20" />
+          <stop offset="100%" stopColor="#FFB300" />
+        </linearGradient>
+      </defs>
+      <rect width="100" height="100" rx="26" fill="url(#msYellowBg)" />
       <path
-        d="M 24 66 C 24 41, 33 29, 41 29 C 47 29, 49 37, 50 42 C 51 37, 53 29, 59 29 C 67 29, 76 41, 76 66"
-        stroke="currentColor"
-        strokeWidth="9"
+        d="M 23 72 L 23 28 L 50 54 L 77 28 L 77 72"
+        fill="none"
+        stroke="#18181B"
+        strokeWidth="11"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="50" cy="64" r="5" fill={dotColor} />
     </svg>
+  );
+}
+
+function UserWAvatar({ size = 36, className = "" }: { size?: number; className?: string }) {
+  return (
+    <div
+      className={`user-w-avatar ${className}`}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: "50%",
+        overflow: "hidden",
+        backgroundColor: "#000000",
+        display: "grid",
+        placeItems: "center",
+        flexShrink: 0,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+      }}
+    >
+      <img
+        src="/avatars/user-w.jpg"
+        alt="User Avatar"
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    </div>
+  );
+}
+
+function BrandLogoDisplay({ logo, className = "", height = 24, invert = false }: { logo?: string; className?: string; height?: number; invert?: boolean }) {
+  const norm = (logo || "").toLowerCase().trim();
+  const filterStyle = invert ? "brightness(0) invert(1)" : "none";
+  if (norm === "ulefone") {
+    return <img src="/brands/ulefone.png" alt="ulefone" className={className} style={{ height: `${height}px`, width: "auto", objectFit: "contain", verticalAlign: "middle", display: "inline-block", filter: filterStyle }} />;
+  }
+  if (norm === "rugone") {
+    return <img src="/brands/rugone.png" alt="RugOne" className={className} style={{ height: `${height}px`, width: "auto", objectFit: "contain", verticalAlign: "middle", display: "inline-block", filter: filterStyle }} />;
+  }
+  return <b className={className} style={{ fontSize: `${Math.round(height * 0.85)}px`, color: invert ? "#FFCE20" : "#F3A600", fontStyle: "italic", verticalAlign: "middle" }}>{logo || "ulefone"}</b>;
+}
+
+function CoverView({ project, cover }: { project: Project; cover?: ProjectCover }) {
+  const t = cover?.template || "commercial";
+  const title = cover?.title || project.name || "未命名脚本";
+  const subtitle = cover?.subtitle || "短视频与广告创意脚本 · 分镜故事板";
+  const client = cover?.client || project.client || "ulefone";
+  const director = cover?.director || "王文志";
+  const dop = cover?.dop || "待定";
+  const producer = cover?.producer || "MediaStory Studio";
+  const date = cover?.date || (project.createdAt ? formatProjectDate(project.createdAt).replace("创建 ", "") : "2026/11/28");
+  const version = cover?.version || "V1.0";
+  const heroImage = cover?.heroImage || (project.shots[0] ? (project.shots[0].image || fallbackImages[0]) : fallbackImages[0]);
+  const format = project.format || "16:9";
+
+  if (t === "cinematic") {
+    return (
+      <div className="cover-card-view cover-view-cinematic">
+        <div className="cover-cine-top">
+          <div className="cover-cine-brand">
+            <BrandLogoDisplay logo={client} height={26} invert={true} />
+          </div>
+          <span className="cover-cine-gold-tag">OFFICIAL STORYBOARD</span>
+        </div>
+        <div className="cover-cine-hero-wrap">
+          <img src={heroImage} alt="" />
+          <div className="cover-cine-hero-overlay">
+            <h1 className="cover-cine-title">{title}</h1>
+            <p className="cover-cine-sub">{subtitle}</p>
+          </div>
+        </div>
+        <div className="cover-cine-footer">
+          <div className="cover-cine-credits">
+            <span>DIRECTOR: <b>{director}</b></span>
+            <span>D.O.P.: <b>{dop}</b></span>
+            <span>PRODUCER: <b>{producer}</b></span>
+          </div>
+          <div>{date} · {version} · {format}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (t === "classic") {
+    return (
+      <div className="cover-card-view cover-view-classic">
+        <div className="cover-clas-header">
+          <div>
+            <h1>STORYBOARD SCRIPT</h1>
+            <small style={{ color: "#64748b", fontSize: 11 }}>PRODUCTION CODE: {project.id.slice(0, 8).toUpperCase()}</small>
+          </div>
+          <BrandLogoDisplay logo={client} height={24} />
+        </div>
+        <div className="cover-clas-grid">
+          <table className="cover-clas-table">
+            <tbody>
+              <tr><th>项目名称</th><td><b>{title}</b></td></tr>
+              <tr><th>客户/品牌</th><td>{client}</td></tr>
+              <tr><th>副标题</th><td>{subtitle}</td></tr>
+              <tr><th>导演</th><td>{director}</td></tr>
+              <tr><th>摄影指导</th><td>{dop}</td></tr>
+              <tr><th>制作团队</th><td>{producer}</td></tr>
+              <tr><th>画幅比例</th><td>{format}</td></tr>
+              <tr><th>版本/日期</th><td>{version} / {date}</td></tr>
+            </tbody>
+          </table>
+          <div className="cover-clas-hero">
+            <img src={heroImage} alt="" />
+          </div>
+        </div>
+        <div className="cover-clas-footer">
+          <span>CONFIDENTIAL · FOR PRODUCTION CREW ONLY</span>
+          <span>{project.name} · 镜头总数: {project.shots.length}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (t === "editorial") {
+    return (
+      <div className="cover-card-view cover-view-editorial">
+        <div className="cover-edit-left">
+          <img src={heroImage} alt="" />
+        </div>
+        <div className="cover-edit-right">
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className="cover-edit-tag">STORYBOARD</span>
+              <BrandLogoDisplay logo={client} height={22} />
+            </div>
+            <h1 className="cover-edit-title">{title}</h1>
+            <p className="cover-edit-desc">{subtitle}</p>
+            {cover?.description && <p className="cover-edit-desc" style={{ marginTop: 8 }}>{cover.description}</p>}
+          </div>
+          <div className="cover-edit-meta">
+            <div>
+              <div style={{ color: "#94a3b8", fontSize: 10 }}>DIRECTOR / D.O.P.</div>
+              <div>{director} / {dop}</div>
+            </div>
+            <div>
+              <div style={{ color: "#94a3b8", fontSize: 10 }}>CLIENT</div>
+              <div>{client}</div>
+            </div>
+            <div>
+              <div style={{ color: "#94a3b8", fontSize: 10 }}>DATE / VER</div>
+              <div>{date} {version}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Default: Commercial (商业广告极简)
+  return (
+    <div className="cover-card-view cover-view-commercial">
+      <div className="cover-comm-top">
+        <BrandLogoDisplay logo={client} height={24} />
+        <span className="cover-comm-badge">TVC / COMMERCIAL STORYBOARD</span>
+      </div>
+      <div className="cover-comm-hero-wrap">
+        <img src={heroImage} alt="" />
+      </div>
+      <div className="cover-comm-titles">
+        <h1 className="cover-comm-title">{title}</h1>
+        <p className="cover-comm-subtitle">{subtitle}</p>
+      </div>
+      <div className="cover-comm-footer">
+        <div className="cover-comm-item"><label>客户 / 品牌</label><span>{client}</span></div>
+        <div className="cover-comm-item"><label>导演</label><span>{director}</span></div>
+        <div className="cover-comm-item"><label>摄影指导</label><span>{dop}</span></div>
+        <div className="cover-comm-item"><label>日期与版本</label><span>{date} · {version}</span></div>
+      </div>
+    </div>
   );
 }
 
@@ -196,6 +400,219 @@ function chunk<T>(items: T[], size: number) {
   );
 }
 
+
+function CoverSettingsModal({
+  project,
+  onSave,
+  onClose,
+}: {
+  project: Project;
+  onSave: (cover: ProjectCover) => void;
+  onClose: () => void;
+}) {
+  const current = project.cover || {
+    enabled: true,
+    template: "commercial",
+    title: project.name,
+    subtitle: "商业广告与短视频创意分镜脚本",
+    client: project.client || "ulefone",
+    director: "王文志",
+    dop: "待定",
+    producer: "MediaStory Studio",
+    date: project.createdAt ? formatProjectDate(project.createdAt).replace("创建 ", "") : "2026/11/28",
+    version: "V1.0",
+    heroImage: project.shots[0]?.image || fallbackImages[0],
+  };
+
+  const [coverData, setCoverData] = useState<ProjectCover>({ ...current, enabled: current.enabled ?? true });
+
+  const templates: { key: CoverTemplateType; name: string; desc: string }[] = [
+    { key: "commercial", name: "商业广告极简", desc: "TVC标准卡片，居中16:9画面与四维信息" },
+    { key: "cinematic", name: "电影大片视觉", desc: "深色沉浸黑金质感，宽幅海报背景" },
+    { key: "classic", name: "经典分镜封面", desc: "工业标准装订档案封皮，参数网格表格" },
+    { key: "editorial", name: "现代画报封面", desc: "双栏画报排版，左侧整版视觉海报" },
+  ];
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="cover-modal-dialog" onClick={(e) => e.stopPropagation()}>
+        <header className="cover-modal-header">
+          <div>
+            <h2>脚本封面设置</h2>
+            <p>为当前项目设置固定分镜封面模板，导出 PDF 时将作为第一页自动生成</p>
+          </div>
+          <button type="button" className="close-btn" onClick={onClose}><X /></button>
+        </header>
+
+        <div className="cover-modal-body">
+          <div className="cover-modal-controls">
+            <div className="cover-enable-toggle">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={coverData.enabled}
+                  onChange={(e) => setCoverData((p) => ({ ...p, enabled: e.target.checked }))}
+                />
+                <b>启用脚本封面</b>
+                <span>导出及预览时展示独立封面页</span>
+              </label>
+            </div>
+
+            <div className="cover-form-group">
+              <label>封面模板</label>
+              <div className="cover-template-picker">
+                {templates.map((tpl) => (
+                  <button
+                    key={tpl.key}
+                    type="button"
+                    className={`tpl-card ${coverData.template === tpl.key ? "selected" : ""}`}
+                    onClick={() => setCoverData((p) => ({ ...p, template: tpl.key }))}
+                  >
+                    <b>{tpl.name}</b>
+                    <small>{tpl.desc}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="cover-form-group">
+              <label>封面主标题</label>
+              <input
+                type="text"
+                value={coverData.title || ""}
+                onChange={(e) => setCoverData((p) => ({ ...p, title: e.target.value }))}
+                placeholder="例如：Armor 35 Pro 官方产品宣传片"
+              />
+            </div>
+
+            <div className="cover-form-group">
+              <label>副标题 / 创意标语</label>
+              <input
+                type="text"
+                value={coverData.subtitle || ""}
+                onChange={(e) => setCoverData((p) => ({ ...p, subtitle: e.target.value }))}
+                placeholder="例如：全球首款超长续航三防旗舰分镜故事板"
+              />
+            </div>
+
+            <div className="cover-form-group">
+              <label>品牌 / 客户</label>
+              <div className="cover-brand-chips">
+                <button
+                  type="button"
+                  className={coverData.client === "ulefone" ? "active" : ""}
+                  onClick={() => setCoverData((p) => ({ ...p, client: "ulefone" }))}
+                >
+                  <img src="/brands/ulefone.png" alt="ulefone" style={{ height: 16 }} />
+                </button>
+                <button
+                  type="button"
+                  className={coverData.client === "RugOne" ? "active" : ""}
+                  onClick={() => setCoverData((p) => ({ ...p, client: "RugOne" }))}
+                >
+                  <img src="/brands/rugone.png" alt="RugOne" style={{ height: 16 }} />
+                </button>
+                <input
+                  type="text"
+                  value={coverData.client || ""}
+                  onChange={(e) => setCoverData((p) => ({ ...p, client: e.target.value }))}
+                  placeholder="自定义品牌名"
+                  style={{ width: 130, padding: "4px 8px", fontSize: 12 }}
+                />
+              </div>
+            </div>
+
+            <div className="cover-grid-row">
+              <div className="cover-form-group">
+                <label>导演 (Director)</label>
+                <input
+                  type="text"
+                  value={coverData.director || ""}
+                  onChange={(e) => setCoverData((p) => ({ ...p, director: e.target.value }))}
+                />
+              </div>
+              <div className="cover-form-group">
+                <label>摄影指导 (D.O.P.)</label>
+                <input
+                  type="text"
+                  value={coverData.dop || ""}
+                  onChange={(e) => setCoverData((p) => ({ ...p, dop: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="cover-grid-row">
+              <div className="cover-form-group">
+                <label>制作团队 / 制片</label>
+                <input
+                  type="text"
+                  value={coverData.producer || ""}
+                  onChange={(e) => setCoverData((p) => ({ ...p, producer: e.target.value }))}
+                />
+              </div>
+              <div className="cover-form-group">
+                <label>版本号 / 日期</label>
+                <input
+                  type="text"
+                  value={`${coverData.version || "V1.0"} · ${coverData.date || "2026/11/28"}`}
+                  onChange={(e) => {
+                    const parts = e.target.value.split("·");
+                    setCoverData((p) => ({
+                      ...p,
+                      version: parts[0]?.trim() || "V1.0",
+                      date: parts[1]?.trim() || "2026/11/28",
+                    }));
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="cover-form-group">
+              <label>封面焦点画面 (从镜头选择)</label>
+              <div className="cover-shots-picker">
+                {project.shots.slice(0, 12).map((shot) => (
+                  <button
+                    key={shot.id}
+                    type="button"
+                    className={`shot-thumb ${coverData.heroImage === (shot.image || fallbackImages[0]) ? "selected" : ""}`}
+                    onClick={() => setCoverData((p) => ({ ...p, heroImage: shot.image || fallbackImages[0] }))}
+                  >
+                    <img src={shot.image || fallbackImages[0]} alt="" />
+                    <span>镜 {shot.no}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="cover-modal-preview">
+            <div className="cover-preview-label">实时效果预览 (A4 横向)</div>
+            <div className="cover-preview-canvas">
+              <CoverView project={project} cover={coverData} />
+            </div>
+          </div>
+        </div>
+
+        <footer className="cover-modal-footer">
+          <button type="button" className="round-btn cancel" onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="yellow-btn"
+            onClick={() => {
+              onSave(coverData);
+              onClose();
+            }}
+          >
+            保存封面设置
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [accessKey, setAccessKey] = useState("");
@@ -234,6 +651,11 @@ export default function Home() {
   const [maxColumns, setMaxColumns] = useState(7);
   const [headerColor, setHeaderColor] = useState("#000000");
   const [brandLogo, setBrandLogo] = useState("ulefone");
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showCoverModal, setShowCoverModal] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
   const [newProjectMenu, setNewProjectMenu] = useState(false);
   const [importModalData, setImportModalData] = useState<{
     projectName: string;
@@ -606,6 +1028,35 @@ export default function Home() {
     const col = columnSettings.find((c) => c.key === key);
     setToast(`已隐藏“${col?.label || "此"}”列（可在列设置中恢复）`);
   }
+
+    function handleLogout() {
+    setShowAccountMenu(false);
+    setShowAccountModal(false);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("mediastory-key");
+      sessionStorage.removeItem("mediastory-key");
+      document.cookie = "mediastory-key=; path=/; max-age=0";
+      localStorage.removeItem("mediastory-last-screen");
+      localStorage.removeItem("mediastory-last-project");
+      localStorage.removeItem("mediastory-last-tab");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    setAccessKey("");
+    setKeyInput("");
+    setScreen("projects");
+  }
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) {
+        setShowAccountMenu(false);
+      }
+    }
+    if (showAccountMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [showAccountMenu]);
 
   function updateProject(patch: Partial<Project>, recordHistory = true) {
     if (!project) return;
@@ -1424,6 +1875,70 @@ export default function Home() {
 
   const renderTemplateModals = () => (
     <>
+      
+      {showAccountModal && (
+        <div className="modal-backdrop" onClick={() => setShowAccountModal(false)}>
+          <div className="account-modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <header className="account-modal-header">
+              <h2>账号设置</h2>
+              <button type="button" className="close-btn" onClick={() => setShowAccountModal(false)}><X /></button>
+            </header>
+            <div className="account-modal-body">
+              <div className="account-profile-hero">
+                <UserWAvatar size={64} />
+                <div className="account-profile-info">
+                  <h3>WANGWENZHI</h3>
+                  <span className="account-badge">团队管理员 (Team Admin)</span>
+                  <p>短视频与商业广告分镜工作台</p>
+                </div>
+              </div>
+              <div className="account-fields-list">
+                <div className="account-field-item">
+                  <label>团队口令</label>
+                  <div className="account-field-val">
+                    <code>wangwenzhi</code>
+                    <span className="field-hint">当前访问已通过团队口令验证</span>
+                  </div>
+                </div>
+                <div className="account-field-item">
+                  <label>默认品牌 LOGO</label>
+                  <div className="account-field-val brand-options-preview">
+                    <div className="brand-chip active"><img src="/brands/ulefone.png" alt="ulefone" style={{ height: 18 }} /></div>
+                    <div className="brand-chip"><img src="/brands/rugone.png" alt="RugOne" style={{ height: 18 }} /></div>
+                  </div>
+                </div>
+                <div className="account-field-item">
+                  <label>网站图标 (Icon)</label>
+                  <div className="account-field-val" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <MediaStoryLogo size={32} />
+                    <span style={{ fontSize: 13, color: "#64748b" }}>黄色底几何 M 标志（统一版）</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <footer className="account-modal-footer">
+              <button type="button" className="danger-btn" onClick={handleLogout}>
+                退出登录
+              </button>
+              <button type="button" className="yellow-btn" onClick={() => setShowAccountModal(false)}>
+                完成
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {showCoverModal && project && (
+        <CoverSettingsModal
+          project={project}
+          onSave={(cover) => {
+            updateProject({ cover });
+            setToast("封面设置已更新");
+          }}
+          onClose={() => setShowCoverModal(false)}
+        />
+      )}
+
       {showTemplatesLibraryModal && (
         <div
           className="template-lib-overlay"
@@ -1663,7 +2178,52 @@ export default function Home() {
           <button className="active"><FolderOpen weight="fill" /><span>项目</span></button>
           <button><UsersThree /><span>联系人</span></button>
         </nav>
-        <button className="account-button"><div className="flash-logo small"><MediaStoryLogo /></div><span>我的账号</span></button>
+        <div className="account-anchor" ref={accountMenuRef}>
+          <button
+            type="button"
+            className="account-button"
+            onClick={() => setShowAccountMenu((prev) => !prev)}
+            title="我的账号"
+          >
+            <UserWAvatar size={36} />
+            <span>我的账号</span>
+          </button>
+          {showAccountMenu && (
+            <div className="account-popover" onClick={(e) => e.stopPropagation()}>
+              <div className="account-popover-header">
+                <UserWAvatar size={42} />
+                <div className="account-popover-info">
+                  <div className="account-popover-name">WANGWENZHI</div>
+                  <div className="account-popover-role">团队管理员</div>
+                </div>
+              </div>
+              <div className="account-popover-divider" />
+              <button
+                type="button"
+                className="account-popover-item"
+                onClick={() => {
+                  setShowAccountMenu(false);
+                  setShowAccountModal(true);
+                }}
+              >
+                <GearSix weight="bold" />
+                <span>账号设置</span>
+              </button>
+              <button
+                type="button"
+                className="account-popover-item danger"
+                onClick={handleLogout}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+                <span>退出登录</span>
+              </button>
+            </div>
+          )}
+        </div>
       </aside>
       <section className="projects-main">
         <header className="projects-top">
@@ -1780,9 +2340,9 @@ export default function Home() {
   const previewPage = (content: ReactNode, pageNumber: number, totalPages: number) => (
     <article className="print-page a4-landscape" key={`${exportType}-${pageNumber}`}>
       <span className="paper-label">A4 横向 · 第 {pageNumber}/{totalPages} 页</span>
-      <header><div><h1>{project.name}</h1></div><div className="print-brand"><b>{brandLogo || project.client || "ulefone"}</b><span className="print-meta">画幅比 {project.format || "16:9"} ｜ 总镜头数 {project.shots.length}个 ｜ 总时长 {totalDuration}秒</span></div></header>
+      <header><div><h1>{project.name}</h1></div><div className="print-brand"><BrandLogoDisplay logo={brandLogo || project.client || "ulefone"} height={24} /><span className="print-meta">画幅比 {project.format || "16:9"} ｜ 总镜头数 {project.shots.length}个 ｜ 总时长 {totalDuration}秒</span></div></header>
       <div className="print-page-content">{content}</div>
-      <footer><b>{brandLogo || project.client || "ulefone"}</b><span>{project.name} · 分镜 · {pageNumber}</span></footer>
+      <footer><BrandLogoDisplay logo={brandLogo || project.client || "ulefone"} height={18} /><span>{project.name} · 分镜 · {pageNumber}</span></footer>
     </article>
   );
 
@@ -1844,8 +2404,11 @@ export default function Home() {
             <div className="logo-select-control">
               <select value={brandLogo} onChange={(e) => setBrandLogo(e.target.value)}>
                 <option value="ulefone">ulefone</option>
+                <option value="RugOne">RugOne</option>
                 <option value="MediaStory">MediaStory</option>
-                <option value={project.client || "品牌定制"}>{project.client || "品牌定制"}</option>
+                {project.client && !["ulefone", "rugone", "mediastory"].includes(project.client.toLowerCase()) && (
+                  <option value={project.client}>{project.client}</option>
+                )}
               </select>
               <span>LOGO选择</span>
             </div>
@@ -1862,6 +2425,18 @@ export default function Home() {
         <div className="preview-top-banner">
           导出排版预览（所见即所得：与导出 PDF / Excel 打印排版 100% 一致）
         </div>
+        {exportType === "分镜" && project.cover?.enabled && (
+          <article className="print-page a4-landscape print-cover-page" key="cover-page-1">
+            <span className="paper-label">A4 横向 · 封面 (第 1 页)</span>
+            <div className="print-page-content" style={{ padding: 0, height: "100%" }}>
+              <CoverView project={project} cover={project.cover} />
+            </div>
+            <footer>
+              <BrandLogoDisplay logo={brandLogo || project.client || "ulefone"} height={18} />
+              <span>{project.name} · 封面</span>
+            </footer>
+          </article>
+        )}
         {exportType === "分镜" && storyboardPages.map((shots, pageIndex) => previewPage(<div className={`print-table ${maxColumns === 8 ? "has-props" : ""}`}>
             <div className="print-table-head" style={{ background: headerColor }}>
               <span>镜号</span>
@@ -1916,7 +2491,7 @@ export default function Home() {
                 </div>
               );
             })}
-          </div>, pageIndex + 1, storyboardPages.length))}
+          </div>, project.cover?.enabled ? pageIndex + 2 : pageIndex + 1, project.cover?.enabled ? storyboardPages.length + 1 : storyboardPages.length))}
         {exportType === "故事板" && storyPages.map((shots, pageIndex) => previewPage(<div className="print-grid">{shots.map((shot) => <div key={shot.id} className={`print-shot ${dragId === shot.id ? "is-dragging" : ""} ${dropTargetId === shot.id ? "is-drop-target" : ""}`} draggable onDragStart={() => setDragId(shot.id)} onDragEnd={endShotDrag} onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== shot.id) setDropTargetId(shot.id); }} onDrop={(e) => { e.preventDefault(); reorder(shot.id); }}><img src={imageFor(shot)} alt="" /><div><span>{shot.shotSize || "未设置"}</span><span>{shot.duration || 0}s</span></div><h4>{shot.description || "暂无内容"}</h4><small>镜头 {shot.no}</small></div>)}</div>, pageIndex + 1, storyPages.length))}
         {exportType === "拍摄计划" && planPages.map((blocks, pageIndex) => previewPage(<div className="export-plan">{blocks.map((block) => <section key={`${block.scene}-${block.shots[0]?.id || "empty"}`} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); reorder(undefined, block.targetScene); }}><header><h2>{block.scene}</h2><span>{project.dueDate} · {block.shots.length}镜 · {block.shots.reduce((sum, shot) => sum + shot.duration, 0)}秒</span></header>{block.shots.map((shot) => <div className={`export-plan-row ${dragId === shot.id ? "is-dragging" : ""} ${dropTargetId === shot.id ? "is-drop-target" : ""}`} draggable onDragStart={() => setDragId(shot.id)} onDragEnd={endShotDrag} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (dragId && dragId !== shot.id) setDropTargetId(shot.id); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); reorder(shot.id, block.targetScene); }} key={shot.id}><b>镜头 {shot.no}</b><img src={imageFor(shot)} alt="" /><p>{shot.description || "暂无内容"}</p><span>{shot.shotSize || "未设置"}</span><span>{shot.status}</span></div>)}</section>)}</div>, pageIndex + 1, planPages.length))}
         {exportType === "拍摄通告" && noticePages.map((notices, pageIndex) => previewPage(<div className="export-notice">{notices.length ? notices.map((notice) => <section key={notice.id}><h2>{notice.title}</h2><div><b>拍摄日期</b><span>{notice.date}</span><b>第一镜时间</b><span>{notice.firstRoll || "待定"}</span><b>地点</b><span>{notice.location || "待定"}</span><b>天气</b><span>{notice.weather || "待定"}</span></div><p>{notice.note}</p></section>) : <p className="empty-export">暂无拍摄通告</p>}</div>, pageIndex + 1, noticePages.length))}
@@ -1931,7 +2506,15 @@ export default function Home() {
         <input className="project-name" value={project.name} onChange={(e) => updateProject({ name: e.target.value })} />
         <nav className="flow-nav">{flowTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => { setTab(item); syncRouteState(screen, project?.id, item, "replace"); }}>{item}</button>)}</nav>
         <div className="project-tools">
-          <div className="flash-logo tiny"><MediaStoryLogo /></div>
+          <div className="flash-logo tiny"><MediaStoryLogo size={32} /></div>
+          <button
+            type="button"
+            className="top-user-avatar-btn"
+            onClick={() => setShowAccountModal(true)}
+            title="WANGWENZHI - 账号设置"
+          >
+            <UserWAvatar size={30} />
+          </button>
           <button className="round-button"><Bell /></button>
           <div className="menu-anchor">
             <button
@@ -1983,6 +2566,16 @@ export default function Home() {
               </div>
             )}
           </div>
+          <button
+            type="button"
+            className={`pill-button cover-btn ${project.cover?.enabled ? "active-brand-btn" : ""}`}
+            onClick={() => setShowCoverModal(true)}
+            title="设置分镜脚本固定封面模板"
+          >
+            <FilmSlate weight={project.cover?.enabled ? "fill" : "regular"} />
+            <span>脚本封面</span>
+            {project.cover?.enabled && <span className="active-dot" />}
+          </button>
           <button className="pill-button"><ShareNetwork /> 协作</button>
           <button className="pill-button" onClick={() => { setScreen("export"); syncRouteState("export", project?.id, tab, "push"); }}><Export /> 导出</button>
         </div>
