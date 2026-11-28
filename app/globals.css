@@ -2370,3 +2370,18 @@ body.is-dragging-shot .shot-row textarea,body.is-dragging-shot .shot-row input,b
     height: 32px !important;
   }
 }
+
+
+/* Print stage responsive centering & overflow */
+.print-stage {
+  padding: 24px !important;
+  overflow-x: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  min-width: 0 !important;
+}
+.print-page.a4-landscape {
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+}
