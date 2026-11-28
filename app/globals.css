@@ -2385,3 +2385,23 @@ body.is-dragging-shot .shot-row textarea,body.is-dragging-shot .shot-row input,b
   box-sizing: border-box !important;
   flex-shrink: 0 !important;
 }
+
+
+/* Responsive A4 Sheet scaling */
+.print-stage {
+  padding: 24px 16px !important;
+  overflow-x: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+}
+.print-page.a4-landscape {
+  max-width: min(1123px, calc(100vw - 360px)) !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+}
+@media (max-width: 1100px) {
+  .print-page.a4-landscape {
+    max-width: 100% !important;
+  }
+}
