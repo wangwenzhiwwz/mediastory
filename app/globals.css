@@ -2256,3 +2256,117 @@ body.is-dragging-shot .shot-row textarea,body.is-dragging-shot .shot-row input,b
   gap: 12px !important;
   flex-shrink: 0 !important;
 }
+
+
+/* =========================================================================
+   Cover Layout Precision & Export Toggle
+   ========================================================================= */
+.cover-card-view {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  height: 100% !important;
+  padding: 24px 32px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+.cover-comm-hero-wrap {
+  width: 100% !important;
+  height: 48% !important;
+  max-height: 220px !important;
+  min-height: 120px !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  margin: 6px 0 !important;
+  flex-shrink: 0 !important;
+}
+.cover-comm-hero-wrap img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+.cover-comm-titles {
+  margin: 4px 0 10px !important;
+  flex-shrink: 0 !important;
+}
+.cover-comm-title {
+  font-size: 24px !important;
+  font-weight: 900 !important;
+  color: #0f172a !important;
+  margin: 0 0 4px !important;
+}
+.cover-comm-subtitle {
+  font-size: 12.5px !important;
+  color: #64748b !important;
+  margin: 0 !important;
+}
+.cover-comm-footer {
+  border-top: 1px solid #e2e8f0 !important;
+  padding-top: 12px !important;
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 12px !important;
+  flex-shrink: 0 !important;
+}
+
+.cover-export-toggle-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cover-export-toggle-label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  cursor: pointer !important;
+}
+.cover-export-toggle-label input[type="checkbox"] {
+  accent-color: #ffbe18;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.cover-edit-quick-btn {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cover-edit-quick-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+/* Ensure mobile header buttons stay accessible */
+@media (max-width: 900px) {
+  .project-tools {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+  }
+  .project-tools .pill-button {
+    display: inline-flex !important;
+    padding: 0 10px !important;
+    font-size: 11.5px !important;
+    height: 32px !important;
+  }
+}

@@ -2351,6 +2351,42 @@ export default function Home() {
       <aside className="export-sidebar">
         <header><button onClick={() => { setScreen("project"); syncRouteState("project", project?.id, tab, "push"); }}><ArrowLeft /></button><h2>导出预览</h2></header>
         <section><h3>内容选择</h3>{["分镜", "故事板", "拍摄计划", "拍摄通告"].map((type) => <label className="radio-row" key={type}><input type="radio" checked={exportType === type} onChange={() => setExportType(type)} />{type}</label>)}</section>
+        <div className="cover-export-toggle-box">
+          <label className="cover-export-toggle-label">
+            <input
+              type="checkbox"
+              checked={Boolean(project.cover?.enabled)}
+              onChange={(e) => {
+                const nextEnabled = e.target.checked;
+                const baseCover = project.cover || {
+                  enabled: true,
+                  template: "commercial",
+                  title: project.name,
+                  subtitle: "商业广告与短视频创意分镜脚本",
+                  client: project.client || "ulefone",
+                  director: "王文志",
+                  dop: "待定",
+                  producer: "MediaStory Studio",
+                  date: project.createdAt ? formatProjectDate(project.createdAt).replace("创建 ", "") : "2026/11/28",
+                  version: "V1.0",
+                  heroImage: project.shots[0]?.image || fallbackImages[0],
+                };
+                updateProject({ cover: { ...baseCover, enabled: nextEnabled } });
+              }}
+            />
+            <span>包含脚本封面 (第 1 页)</span>
+          </label>
+          {project.cover?.enabled && (
+            <button
+              type="button"
+              className="cover-edit-quick-btn"
+              onClick={() => setShowCoverModal(true)}
+              title="配置封面模板与内容"
+            >
+              <GearSix weight="bold" /> 配置封面
+            </button>
+          )}
+        </div>
         <section>
           <h3>导出设置</h3>
           <select className="format-select" value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}>
