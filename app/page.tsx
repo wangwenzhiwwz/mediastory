@@ -62,7 +62,14 @@ function MediaStoryLogo({ className = "", dotColor = "#FFBE18" }: { className?: 
 function StoryboardFolderVisual({ count }: { count: number }) {
   return (
     <div className="folder-visual-wrap">
-      <svg width="140" height="98" viewBox="0 0 140 98" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg
+        width="140"
+        height="98"
+        viewBox="0 0 140 98"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ width: "140px", height: "98px", display: "block" }}
+      >
         <defs>
           <linearGradient id="folderBackGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#FFBA18"/>
@@ -105,7 +112,7 @@ function formatProjectDate(isoStr?: string) {
 }
 
 export const standard7Columns: ColumnSetting[] = [
-  { key: "image", label: "画面", width: 180, visible: true },
+  { key: "image", label: "画面", width: 240, visible: true },
   { key: "shotSize", label: "景别", width: 80, visible: true },
   { key: "duration", label: "时长 (秒)", width: 85, visible: true },
   { key: "content", label: "内容", width: 320, visible: true },
@@ -114,7 +121,7 @@ export const standard7Columns: ColumnSetting[] = [
 ];
 
 export const movie8Columns: ColumnSetting[] = [
-  { key: "image", label: "画面", width: 180, visible: true },
+  { key: "image", label: "画面", width: 240, visible: true },
   { key: "shotSize", label: "景别", width: 80, visible: true },
   { key: "duration", label: "时长 (秒)", width: 85, visible: true },
   { key: "content", label: "内容", width: 300, visible: true },
@@ -124,7 +131,7 @@ export const movie8Columns: ColumnSetting[] = [
 ];
 
 export const minimal4Columns: ColumnSetting[] = [
-  { key: "image", label: "画面", width: 220, visible: true },
+  { key: "image", label: "画面", width: 260, visible: true },
   { key: "duration", label: "时长 (秒)", width: 90, visible: true },
   { key: "content", label: "内容", width: 380, visible: true },
   { key: "note", label: "备注", width: 200, visible: true },
@@ -135,7 +142,7 @@ export const builtinTemplates: ColumnTemplate[] = [
     id: "builtin-xie",
     name: "谢老师",
     columns: [
-      { key: "image", label: "画面", width: 180, visible: true },
+      { key: "image", label: "画面", width: 240, visible: true },
       { key: "shotSize", label: "景别", width: 80, visible: true },
       { key: "reference", label: "参考", width: 140, visible: true },
       { key: "duration", label: "时长 (秒)", width: 85, visible: true },
@@ -147,7 +154,7 @@ export const builtinTemplates: ColumnTemplate[] = [
     id: "builtin-simple",
     name: "简洁",
     columns: [
-      { key: "image", label: "画面", width: 200, visible: true },
+      { key: "image", label: "画面", width: 240, visible: true },
       { key: "shotSize", label: "景别", width: 90, visible: true },
       { key: "duration", label: "时长 (秒)", width: 90, visible: true },
       { key: "content", label: "内容", width: 340, visible: true },
@@ -158,7 +165,7 @@ export const builtinTemplates: ColumnTemplate[] = [
     id: "builtin-visual",
     name: "画面",
     columns: [
-      { key: "image", label: "画面", width: 220, visible: true },
+      { key: "image", label: "画面", width: 260, visible: true },
       { key: "reference", label: "参考", width: 140, visible: true },
       { key: "content", label: "内容", width: 320, visible: true },
       { key: "note", label: "备注", width: 180, visible: true },
@@ -169,6 +176,12 @@ export const builtinTemplates: ColumnTemplate[] = [
 ];
 
 const defaultColumns: ColumnSetting[] = standard7Columns;
+
+function normalizeColumns(cols?: ColumnSetting[]): ColumnSetting[] {
+  const target = cols?.length ? cols : defaultColumns;
+  return target.map((c) => (c.key === "image" && (c.width || 0) < 220 ? { ...c, width: 240 } : c));
+}
+
 const blankImage = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="100%" height="100%" fill="#f0f2f3"/><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#a8adb0" font-family="sans-serif" font-size="28">未添加图片</text></svg>`,
 );
@@ -241,6 +254,7 @@ export default function Home() {
   const [editingTemplate, setEditingTemplate] = useState<ColumnTemplate | null>(null);
   const [showNewTemplateModal, setShowNewTemplateModal] = useState<boolean>(false);
   const [newTemplateName, setNewTemplateName] = useState<string>("");
+  const [resizingColKey, setResizingColKey] = useState<string | null>(null);
   const [topMoreMenu, setTopMoreMenu] = useState(false);
   const [storyboardSettingsMenu, setStoryboardSettingsMenu] = useState(false);
   const [history, setHistory] = useState<Array<{ shots: Shot[]; columnSettings: ColumnSetting[] }>>([]);
@@ -389,6 +403,7 @@ export default function Home() {
       setTopMoreMenu(false);
       setStoryboardSettingsMenu(false);
       setNewProjectMenu(false);
+      setProjectMenu(null);
       setShowMoveMenu(false);
     };
     window.addEventListener("paste", handlePaste);
@@ -408,7 +423,7 @@ export default function Home() {
       if (!res.ok) throw new Error(res.status === 401 ? "访问口令不正确" : "无法读取项目数据");
       const data = await res.json() as Workspace;
       const active = data.projects.find((item) => item.id === data.activeProjectId) || data.projects[0];
-      setWorkspace(data); setColumnSettings(active?.columnSettings?.length ? active.columnSettings : defaultColumns);
+      setWorkspace(data); setColumnSettings(normalizeColumns(active?.columnSettings));
       setAccessKey(key); sessionStorage.setItem("mediastory-key", key); setLoginError("");
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : "登录失败");
@@ -485,6 +500,50 @@ export default function Home() {
   function commitColumns(next: ColumnSetting[]) {
     setColumnSettings(next);
     updateProject({ columnSettings: next });
+  }
+
+  function startColResize(e: React.MouseEvent, colKey: string, initialWidth?: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = initialWidth || (colKey === "image" ? 240 : 120);
+    setResizingColKey(colKey);
+    if (typeof document !== "undefined") {
+      document.body.classList.add("is-resizing-col");
+    }
+
+    let currentW = startW;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = moveEvent.clientX - startX;
+      const minW = colKey === "image" ? 140 : 40;
+      const nextW = Math.max(minW, Math.round(startW + deltaX));
+      currentW = nextW;
+      setColumnSettings((prev) =>
+        prev.map((c) => (c.key === colKey ? { ...c, width: nextW } : c))
+      );
+    };
+
+    const onMouseUp = () => {
+      if (typeof document !== "undefined") {
+        document.body.classList.remove("is-resizing-col");
+      }
+      setResizingColKey(null);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+
+      setColumnSettings((latest) => {
+        const updated = latest.map((c) => (c.key === colKey ? { ...c, width: currentW } : c));
+        if (project) {
+          updateProject({ columnSettings: updated });
+        }
+        return updated;
+      });
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   }
 
   function updateColumn(key: string, patch: Partial<ColumnSetting>) {
@@ -882,8 +941,10 @@ export default function Home() {
 
   function openProject(id: string) {
     const selected = workspace.projects.find((item) => item.id === id);
-    setColumnSettings(selected?.columnSettings?.length ? selected.columnSettings : defaultColumns);
-    void persist({ ...workspace, activeProjectId: id });
+    setColumnSettings(normalizeColumns(selected?.columnSettings));
+    const nextWorkspace = { ...workspace, activeProjectId: id };
+    setWorkspace(nextWorkspace);
+    void persist(nextWorkspace);
     setScreen("project"); setTab("分镜制作");
   }
 
@@ -891,9 +952,17 @@ export default function Home() {
     const newProject: Project = {
       id: uid("project"), name: "未命名广告项目", client: "新客户", format: "9:16",
       dueDate: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-      script: "在这里写下创意、旁白或完整脚本。", createdAt: new Date().toISOString(), shots: [],
+      script: "在这里写下创意、旁白或完整脚本。", createdAt: new Date().toISOString(),
+      columnSettings: defaultColumns,
+      shots: [],
     };
-    void persist({ ...workspace, projects: [newProject, ...workspace.projects], activeProjectId: newProject.id });
+    const nextWorkspace = {
+      ...workspace,
+      projects: [newProject, ...(workspace.projects || [])],
+      activeProjectId: newProject.id,
+    };
+    setWorkspace(nextWorkspace);
+    void persist(nextWorkspace);
     setColumnSettings(defaultColumns);
     setScreen("project"); setTab("分镜制作");
   }
@@ -1483,20 +1552,44 @@ export default function Home() {
         </header>
         <div className="project-grid">
           <article className="folder-card new-project-card">
-            <button className="new-project" onClick={() => setNewProjectMenu(!newProjectMenu)}>
+            <button
+              className="new-project"
+              onClick={(e) => {
+                e.stopPropagation();
+                setNewProjectMenu(!newProjectMenu);
+              }}
+            >
               <div><Plus /></div>
               <b>创建新项目 / ...</b>
               <span>从空白或表格导入</span>
             </button>
             {newProjectMenu && (
               <div className="mini-menu create-project-menu" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => { setNewProjectMenu(false); addProject(); }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNewProjectMenu(false);
+                    addProject();
+                  }}
+                >
                   <FilmSlate weight="bold" /> 创建项目
                 </button>
-                <button onClick={() => { setNewProjectMenu(false); handleCreateGroup(); }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNewProjectMenu(false);
+                    handleCreateGroup();
+                  }}
+                >
                   <Folder weight="bold" /> 创建组
                 </button>
-                <button onClick={() => { setNewProjectMenu(false); excelInputRef.current?.click(); }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNewProjectMenu(false);
+                    excelInputRef.current?.click();
+                  }}
+                >
                   <FileArrowDown weight="bold" /> 导入Excel
                 </button>
               </div>
@@ -1509,12 +1602,22 @@ export default function Home() {
                 <h3>{item.name}</h3>
                 <small>{formatProjectDate(item.createdAt)}</small>
               </button>
-              <button className="card-menu" onClick={() => setProjectMenu(projectMenu === item.id ? null : item.id)}><DotsThree weight="bold" /></button>
-              {projectMenu === item.id && <div className="mini-menu project-card-menu">
-                <button onClick={() => { setEditingProject({ ...item }); setProjectMenu(null); }}><PencilSimple /> 修改项目名称和标志</button>
-                <button onClick={() => duplicateProject(item)}><Copy /> 复制分镜到新项目</button>
-                <button className="danger" onClick={() => deleteProject(item.id)}><Trash /> 移入回收站</button>
-              </div>}
+              <button
+                className="card-menu"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setProjectMenu(projectMenu === item.id ? null : item.id);
+                }}
+              >
+                <DotsThree weight="bold" />
+              </button>
+              {projectMenu === item.id && (
+                <div className="mini-menu project-card-menu" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={(e) => { e.stopPropagation(); setEditingProject({ ...item }); setProjectMenu(null); }}><PencilSimple /> 修改项目名称和标志</button>
+                  <button onClick={(e) => { e.stopPropagation(); setProjectMenu(null); duplicateProject(item); }}><Copy /> 复制分镜到新项目</button>
+                  <button className="danger" onClick={(e) => { e.stopPropagation(); setProjectMenu(null); deleteProject(item.id); }}><Trash /> 移入回收站</button>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -1995,6 +2098,12 @@ export default function Home() {
                   >
                     <CaretDown weight="bold" />
                   </button>
+                  <div
+                    className={`col-resize-handle ${resizingColKey === column.key ? "active" : ""}`}
+                    onMouseDown={(e) => startColResize(e, column.key, column.width)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="拖动调整列宽"
+                  />
                   {activeColMenu === column.key && (
                     <div className="action-popover col-quick-menu" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -2218,7 +2327,7 @@ export default function Home() {
                     }
                     if (column.key === "image") {
                       return (
-                        <div key={column.key}>
+                        <div key={column.key} className="table-img-cell">
                           <label
                             className={`row-image ${(hoveredImageId || selectedImageId) === shot.id ? "paste-target" : ""}`}
                             onMouseEnter={() => setHoveredImageId(shot.id)}
