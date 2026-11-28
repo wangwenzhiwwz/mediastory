@@ -302,13 +302,77 @@ export default function Home() {
     return ["44px", "28px", "46px", ...colWidths, "44px"].join(" ");
   }, [visibleColumnSettings]);
 
+  function syncRouteState(
+    nextScreen: "projects" | "project" | "export",
+    projectId?: string,
+    nextTab?: string,
+    mode: "replace" | "push" = "replace"
+  ) {
+    if (typeof window === "undefined") return;
+    if (nextScreen === "projects") {
+      const targetUrl = window.location.pathname;
+      if (mode === "push") {
+        window.history.pushState(null, "", targetUrl);
+      } else {
+        window.history.replaceState(null, "", targetUrl);
+      }
+      localStorage.setItem("mediastory-last-screen", "projects");
+    } else {
+      const pId = projectId || project?.id || "";
+      const t = nextTab || tab || "分镜制作";
+      const search = `?project=${encodeURIComponent(pId)}&tab=${encodeURIComponent(t)}${nextScreen === "export" ? "&screen=export" : ""}`;
+      if (mode === "push") {
+        window.history.pushState(null, "", search);
+      } else {
+        window.history.replaceState(null, "", search);
+      }
+      localStorage.setItem("mediastory-last-screen", nextScreen);
+      localStorage.setItem("mediastory-last-project", pId);
+      localStorage.setItem("mediastory-last-tab", t);
+    }
+  }
+
   useEffect(() => {
-    const stored = sessionStorage.getItem("mediastory-key") || "";
+    let stored = "";
+    if (typeof window !== "undefined") {
+      stored = localStorage.getItem("mediastory-key") || sessionStorage.getItem("mediastory-key") || "";
+      if (!stored && document.cookie) {
+        const match = document.cookie.match(/(?:^|;\s*)mediastory-key=([^;]+)/);
+        if (match) {
+          stored = decodeURIComponent(match[1]);
+        }
+      }
+    }
     if (!stored) {
       queueMicrotask(() => setLoading(false));
       return;
     }
     void loadWorkspace(stored);
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const pId = params.get("project");
+      const pTab = params.get("tab");
+      const pScreen = params.get("screen");
+      if (pId) {
+        const s = pScreen === "export" ? "export" : "project";
+        setScreen(s);
+        if (pTab && ["分镜制作", "故事板", "拍摄计划", "拍摄通告"].includes(pTab)) {
+          setTab(pTab);
+        }
+        setWorkspace((prev) => ({ ...prev, activeProjectId: pId }));
+        localStorage.setItem("mediastory-last-screen", s);
+        localStorage.setItem("mediastory-last-project", pId);
+        if (pTab) localStorage.setItem("mediastory-last-tab", pTab);
+      } else {
+        setScreen("projects");
+        localStorage.setItem("mediastory-last-screen", "projects");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   useEffect(() => {
@@ -422,12 +486,68 @@ export default function Home() {
       const res = await fetch("/api/workspace", { headers: { "x-access-key": key } });
       if (!res.ok) throw new Error(res.status === 401 ? "访问口令不正确" : "无法读取项目数据");
       const data = await res.json() as Workspace;
-      const active = data.projects.find((item) => item.id === data.activeProjectId) || data.projects[0];
-      setWorkspace(data); setColumnSettings(normalizeColumns(active?.columnSettings));
-      setAccessKey(key); sessionStorage.setItem("mediastory-key", key); setLoginError("");
+
+      let targetProjectId = "";
+      let targetTab = "分镜制作";
+      let targetScreen: "projects" | "project" | "export" = "projects";
+
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const urlPId = params.get("project");
+        const urlTab = params.get("tab");
+        const urlScreen = params.get("screen");
+
+        const savedScreen = localStorage.getItem("mediastory-last-screen");
+        const savedProject = localStorage.getItem("mediastory-last-project");
+        const savedTab = localStorage.getItem("mediastory-last-tab");
+
+        if (urlPId && data.projects.some((p) => p.id === urlPId)) {
+          targetProjectId = urlPId;
+          targetScreen = urlScreen === "export" ? "export" : "project";
+          if (urlTab && ["分镜制作", "故事板", "拍摄计划", "拍摄通告"].includes(urlTab)) {
+            targetTab = urlTab;
+          }
+        } else if (savedScreen && savedScreen !== "projects" && savedProject && data.projects.some((p) => p.id === savedProject)) {
+          targetProjectId = savedProject;
+          targetScreen = savedScreen === "export" ? "export" : "project";
+          if (savedTab && ["分镜制作", "故事板", "拍摄计划", "拍摄通告"].includes(savedTab)) {
+            targetTab = savedTab;
+          }
+        }
+      }
+
+      const active = (targetProjectId && data.projects.find((item) => item.id === targetProjectId))
+        || data.projects.find((item) => item.id === data.activeProjectId)
+        || data.projects[0];
+
+      setWorkspace({ ...data, activeProjectId: active?.id || data.activeProjectId });
+      setColumnSettings(normalizeColumns(active?.columnSettings));
+
+      if (targetProjectId && active) {
+        setScreen(targetScreen);
+        setTab(targetTab);
+        if (typeof window !== "undefined") {
+          const qs = `?project=${encodeURIComponent(active.id)}&tab=${encodeURIComponent(targetTab)}${targetScreen === "export" ? "&screen=export" : ""}`;
+          window.history.replaceState(null, "", qs);
+          localStorage.setItem("mediastory-last-screen", targetScreen);
+          localStorage.setItem("mediastory-last-project", active.id);
+          localStorage.setItem("mediastory-last-tab", targetTab);
+        }
+      }
+
+      setAccessKey(key);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("mediastory-key", key);
+        sessionStorage.setItem("mediastory-key", key);
+        document.cookie = `mediastory-key=${encodeURIComponent(key)}; path=/; max-age=31536000; SameSite=Lax`;
+      }
+      setLoginError("");
     } catch (error) {
       setLoginError(error instanceof Error ? error.message : "登录失败");
-      sessionStorage.removeItem("mediastory-key");
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("mediastory-key");
+        sessionStorage.removeItem("mediastory-key");
+      }
     } finally { setLoading(false); }
   }
 
@@ -945,7 +1065,9 @@ export default function Home() {
     const nextWorkspace = { ...workspace, activeProjectId: id };
     setWorkspace(nextWorkspace);
     void persist(nextWorkspace);
-    setScreen("project"); setTab("分镜制作");
+    setScreen("project");
+    setTab("分镜制作");
+    syncRouteState("project", id, "分镜制作", "push");
   }
 
   function addProject() {
@@ -964,7 +1086,9 @@ export default function Home() {
     setWorkspace(nextWorkspace);
     void persist(nextWorkspace);
     setColumnSettings(defaultColumns);
-    setScreen("project"); setTab("分镜制作");
+    setScreen("project");
+    setTab("分镜制作");
+    syncRouteState("project", newProject.id, "分镜制作", "push");
   }
 
   async function handleFileImport(file: File, target: "new" | "current") {
@@ -1009,6 +1133,7 @@ export default function Home() {
         setColumnSettings(newProj.columnSettings || defaultColumns);
         setScreen("project");
         setTab("分镜制作");
+        syncRouteState("project", newProj.id, "分镜制作", "push");
         setToast(`已成功导入项目 “${newProj.name}”（共 ${newProj.shots.length} 个镜头）`);
       } else {
         setImportModalData(data);
@@ -1067,6 +1192,7 @@ export default function Home() {
     setColumnSettings(newProj.columnSettings || defaultColumns);
     setScreen("project");
     setTab("分镜制作");
+    syncRouteState("project", newProj.id, "分镜制作", "push");
     setToast(`已作为新项目导入 “${newProj.name}”（共 ${newProj.shots.length} 个镜头）`);
     setImportModalData(null);
   }
@@ -1082,6 +1208,10 @@ export default function Home() {
     const projectsLeft = workspace.projects.filter((p) => p.id !== id);
     void persist({ ...workspace, projects: projectsLeft, activeProjectId: projectsLeft[0]?.id || "" });
     setProjectMenu(null);
+    if (project?.id === id) {
+      setScreen("projects");
+      syncRouteState("projects", undefined, undefined, "replace");
+    }
   }
 
   function duplicateProject(item: Project) {
@@ -1516,7 +1646,7 @@ export default function Home() {
         <div className="flash-logo"><MediaStoryLogo /></div>
         <p className="brand-kicker">MEDIASTORY</p><h1>让创意落到每一个镜头</h1>
         <p className="muted">短视频与广告团队的前期制作工作台</p>
-        <form onSubmit={(e) => { e.preventDefault(); void loadWorkspace(keyInput); }}>
+        <form onSubmit={(e) => { e.preventDefault(); void loadWorkspace(keyInput.trim() || "wangwenzhi"); }}>
           <label>团队访问口令<input type="password" value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="请输入团队口令（默认：wangwenzhi）" autoFocus /></label>
           {loginError && <p className="error">{loginError}</p>}
           <button className="yellow-btn wide" type="submit">进入工作台</button>
@@ -1645,7 +1775,7 @@ export default function Home() {
     </main>
   );
 
-  if (!project) return <main className="loading-page"><button className="yellow-btn" onClick={() => setScreen("projects")}>返回项目</button></main>;
+  if (!project) return <main className="loading-page"><button className="yellow-btn" onClick={() => { setScreen("projects"); syncRouteState("projects", undefined, undefined, "push"); }}>返回项目</button></main>;
 
   const previewPage = (content: ReactNode, pageNumber: number, totalPages: number) => (
     <article className="print-page a4-landscape" key={`${exportType}-${pageNumber}`}>
@@ -1659,7 +1789,7 @@ export default function Home() {
   if (screen === "export") return (
     <main className="export-screen">
       <aside className="export-sidebar">
-        <header><button onClick={() => setScreen("project")}><ArrowLeft /></button><h2>导出预览</h2></header>
+        <header><button onClick={() => { setScreen("project"); syncRouteState("project", project?.id, tab, "push"); }}><ArrowLeft /></button><h2>导出预览</h2></header>
         <section><h3>内容选择</h3>{["分镜", "故事板", "拍摄计划", "拍摄通告"].map((type) => <label className="radio-row" key={type}><input type="radio" checked={exportType === type} onChange={() => setExportType(type)} />{type}</label>)}</section>
         <section>
           <h3>导出设置</h3>
@@ -1797,9 +1927,9 @@ export default function Home() {
   return (
     <main className="project-shell">
       <header className="project-header">
-        <button className="back-button" onClick={() => setScreen("projects")}><ArrowLeft /></button>
+        <button className="back-button" onClick={() => { setScreen("projects"); syncRouteState("projects", undefined, undefined, "push"); }}><ArrowLeft /></button>
         <input className="project-name" value={project.name} onChange={(e) => updateProject({ name: e.target.value })} />
-        <nav className="flow-nav">{flowTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>{item}</button>)}</nav>
+        <nav className="flow-nav">{flowTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} onClick={() => { setTab(item); syncRouteState(screen, project?.id, item, "replace"); }}>{item}</button>)}</nav>
         <div className="project-tools">
           <div className="flash-logo tiny"><MediaStoryLogo /></div>
           <button className="round-button"><Bell /></button>
@@ -1854,7 +1984,7 @@ export default function Home() {
             )}
           </div>
           <button className="pill-button"><ShareNetwork /> 协作</button>
-          <button className="pill-button" onClick={() => setScreen("export")}><Export /> 导出</button>
+          <button className="pill-button" onClick={() => { setScreen("export"); syncRouteState("export", project?.id, tab, "push"); }}><Export /> 导出</button>
         </div>
       </header>
 
@@ -2597,7 +2727,7 @@ export default function Home() {
           {noticeStep === 2 && <><aside><h3>人员信息</h3><p>添加导演、摄影、制片和联系人</p></aside><section className="people-form">{noticeDraft.people.map((person, index) => <div key={`${person.role}-${index}`}><select value={person.role} onChange={(e) => setNoticeDraft({ ...noticeDraft, people: noticeDraft.people.map((p, i) => i === index ? { ...p, role: e.target.value } : p) })}><option>导演 Director</option><option>摄影 DOP</option><option>制片 Producer</option><option>联系人 Contact</option><option>灯光 Gaffer</option></select><input value={person.name} onChange={(e) => setNoticeDraft({ ...noticeDraft, people: noticeDraft.people.map((p, i) => i === index ? { ...p, name: e.target.value } : p) })} placeholder="请输入姓名和电话" /><button onClick={() => setNoticeDraft({ ...noticeDraft, people: noticeDraft.people.filter((_, i) => i !== index) })}><Trash /></button></div>)}<button className="add-person" onClick={() => setNoticeDraft({ ...noticeDraft, people: [...noticeDraft.people, { role: "联系人 Contact", name: "" }] })}><UserPlus /> 添加人员</button></section></>}
           {noticeStep === 3 && <><aside><h3>计划与日程</h3><p>核对分组、演员和拍摄计划</p></aside><section className="call-sheet-preview"><table><tbody><tr><th>拍摄标题</th><td>{noticeDraft.title}</td><th>拍摄日期</th><td>{noticeDraft.date}</td></tr><tr><th>第一镜时间</th><td>{noticeDraft.firstRoll || "待定"}</td><th>拍摄地点</th><td>{noticeDraft.location || "待定"}</td></tr><tr><th>天气</th><td colSpan={3}>{noticeDraft.weather || "待定"}</td></tr></tbody></table><h3>拍摄计划 Shot Plan</h3>{sceneGroups.map(([scene, shots]) => <div className="schedule-row" key={scene}><b>{scene}</b><span>{shots.length} 镜</span><span>{shots.reduce((sum, s) => sum + s.duration, 0)} 秒</span></div>)}</section></>}
         </div>
-        <footer><button className="pill-button" disabled={noticeStep === 1} onClick={() => setNoticeStep(Math.max(1, noticeStep - 1))}>上一步</button><button className="pill-button" onClick={() => saveNotice(true)}>存储并退出</button><button className="pill-button" onClick={() => { saveNotice(); setScreen("export"); setExportType("拍摄通告"); }}>预览和导出</button>{noticeStep < 3 ? <button className="yellow-btn" onClick={() => setNoticeStep(noticeStep + 1)}>下一步</button> : <button className="yellow-btn" onClick={() => saveNotice(true)}>完成</button>}</footer>
+        <footer><button className="pill-button" disabled={noticeStep === 1} onClick={() => setNoticeStep(Math.max(1, noticeStep - 1))}>上一步</button><button className="pill-button" onClick={() => saveNotice(true)}>存储并退出</button><button className="pill-button" onClick={() => { saveNotice(); setScreen("export"); setExportType("拍摄通告"); syncRouteState("export", project?.id, "拍摄通告", "push"); }}>预览和导出</button>{noticeStep < 3 ? <button className="yellow-btn" onClick={() => setNoticeStep(noticeStep + 1)}>下一步</button> : <button className="yellow-btn" onClick={() => saveNotice(true)}>完成</button>}</footer>
       </div>}
 
       {editingShot && <div className="modal-overlay" onClick={() => setEditingShot(null)}><section className="edit-modal storyboard-edit" onClick={(e) => e.stopPropagation()}>{(() => { const shot = project.shots.find((s) => s.id === editingShot); if (!shot) return null; return <><header><div><h2>故事板编辑</h2><small>镜头 {shot.no}</small></div><button onClick={() => setEditingShot(null)}><X /></button></header>
